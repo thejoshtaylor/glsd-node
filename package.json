@@ -1,8 +1,13 @@
 {
   "name": "claude-telegram-bot-ts",
-  "module": "index.ts",
+  "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "typecheck": "bun run --bun tsc --noEmit"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/pdf-parse": "^1.1.5"
