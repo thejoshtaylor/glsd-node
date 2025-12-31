@@ -6,12 +6,12 @@
 
 import type { Context } from "grammy";
 import * as pdfParse from "pdf-parse";
-import type { PendingMediaGroup } from "../types";
 import { session } from "../session";
-import { ALLOWED_USERS, INTENT_BLOCK_THRESHOLD, TEMP_DIR, MEDIA_GROUP_TIMEOUT } from "../config";
+import { ALLOWED_USERS, INTENT_BLOCK_THRESHOLD, TEMP_DIR } from "../config";
 import { isAuthorized, rateLimiter, classifyIntent } from "../security";
 import { auditLog, auditLogBlocked, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
+import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
 
 // Supported text file extensions
 const TEXT_EXTENSIONS = [
@@ -38,8 +38,12 @@ const TEXT_EXTENSIONS = [
 // Max file size (10MB)
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-// Pending document groups
-const pendingDocGroups = new Map<string, PendingMediaGroup>();
+// Create document-specific media group buffer
+const documentBuffer = createMediaGroupBuffer({
+  emoji: "📄",
+  itemLabel: "document",
+  itemLabelPlural: "documents",
+});
 
 /**
  * Download a document and return the local path.
@@ -149,45 +153,27 @@ async function processDocuments(
 
     await auditLog(userId, username, "DOCUMENT", `[${documents.length} docs] ${caption || ""}`, response);
   } catch (error) {
-    console.error("Error processing document:", error);
-
-    for (const toolMsg of state.toolMessages) {
-      try {
-        await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-      } catch {
-        // Ignore
-      }
-    }
-
-    if (String(error).includes("abort") || String(error).includes("cancel")) {
-      await ctx.reply("🛑 Query stopped.");
-    } else {
-      await ctx.reply(`❌ Error: ${String(error).slice(0, 200)}`);
-    }
+    await handleProcessingError(ctx, error, state.toolMessages);
   } finally {
     typing.stop();
   }
 }
 
 /**
- * Process a buffered document group.
+ * Process document paths by extracting text and calling processDocuments.
  */
-async function processDocGroup(groupId: string): Promise<void> {
-  const group = pendingDocGroups.get(groupId);
-  if (!group) return;
-
-  pendingDocGroups.delete(groupId);
-
-  const userId = group.ctx.from?.id;
-  const username = group.ctx.from?.username || "unknown";
-  const chatId = group.ctx.chat?.id;
-
-  if (!userId || !chatId) return;
-
+async function processDocumentPaths(
+  ctx: Context,
+  paths: string[],
+  caption: string | undefined,
+  userId: number,
+  username: string,
+  chatId: number
+): Promise<void> {
   // Extract text from all documents
   const documents: Array<{ path: string; name: string; content: string }> = [];
 
-  for (const path of group.items) {
+  for (const path of paths) {
     try {
       const name = path.split("/").pop() || "document";
       const content = await extractText(path);
@@ -198,33 +184,11 @@ async function processDocGroup(groupId: string): Promise<void> {
   }
 
   if (documents.length === 0) {
-    await group.ctx.reply("❌ Failed to extract any documents.");
+    await ctx.reply("❌ Failed to extract any documents.");
     return;
   }
 
-  // Update status message
-  if (group.statusMsg) {
-    try {
-      await group.ctx.api.editMessageText(
-        group.statusMsg.chat.id,
-        group.statusMsg.message_id,
-        `📄 Processing ${documents.length} documents...`
-      );
-    } catch {
-      // Ignore
-    }
-  }
-
-  await processDocuments(group.ctx, documents, group.caption, userId, username, chatId);
-
-  // Delete status message
-  if (group.statusMsg) {
-    try {
-      await group.ctx.api.deleteMessage(group.statusMsg.chat.id, group.statusMsg.message_id);
-    } catch {
-      // Ignore
-    }
-  }
+  await processDocuments(ctx, documents, caption, userId, username, chatId);
 }
 
 /**
@@ -305,37 +269,5 @@ export async function handleDocument(ctx: Context): Promise<void> {
   }
 
   // 6. Media group - buffer with timeout
-  if (!pendingDocGroups.has(mediaGroupId)) {
-    // Rate limit on first doc only
-    const [allowed, retryAfter] = rateLimiter.check(userId);
-    if (!allowed) {
-      await auditLogRateLimit(userId, username, retryAfter!);
-      await ctx.reply(`⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`);
-      return;
-    }
-
-    // Create new group
-    const statusMsg = await ctx.reply("📄 Receiving documents...");
-
-    pendingDocGroups.set(mediaGroupId, {
-      items: [docPath],
-      ctx,
-      caption: ctx.message?.caption,
-      statusMsg,
-      timeout: setTimeout(() => processDocGroup(mediaGroupId), MEDIA_GROUP_TIMEOUT),
-    });
-  } else {
-    // Add to existing group
-    const group = pendingDocGroups.get(mediaGroupId)!;
-    group.items.push(docPath);
-
-    // Update caption if this message has one
-    if (ctx.message?.caption && !group.caption) {
-      group.caption = ctx.message.caption;
-    }
-
-    // Reset timeout
-    clearTimeout(group.timeout);
-    group.timeout = setTimeout(() => processDocGroup(mediaGroupId), MEDIA_GROUP_TIMEOUT);
-  }
+  await documentBuffer.addToGroup(mediaGroupId, docPath, ctx, userId, username, processDocumentPaths);
 }

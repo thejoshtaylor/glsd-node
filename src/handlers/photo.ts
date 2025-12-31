@@ -5,15 +5,19 @@
  */
 
 import type { Context } from "grammy";
-import type { PendingMediaGroup } from "../types";
 import { session } from "../session";
-import { ALLOWED_USERS, INTENT_BLOCK_THRESHOLD, TEMP_DIR, MEDIA_GROUP_TIMEOUT } from "../config";
+import { ALLOWED_USERS, INTENT_BLOCK_THRESHOLD, TEMP_DIR } from "../config";
 import { isAuthorized, rateLimiter, classifyIntent } from "../security";
 import { auditLog, auditLogBlocked, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
+import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
 
-// Pending media groups buffer
-const pendingMediaGroups = new Map<string, PendingMediaGroup>();
+// Create photo-specific media group buffer
+const photoBuffer = createMediaGroupBuffer({
+  emoji: "📷",
+  itemLabel: "photo",
+  itemLabelPlural: "photos",
+});
 
 /**
  * Download a photo and return the local path.
@@ -25,7 +29,6 @@ async function downloadPhoto(ctx: Context): Promise<string> {
   }
 
   // Get the largest photo
-  const photo = photos[photos.length - 1];
   const file = await ctx.getFile();
 
   const timestamp = Date.now();
@@ -96,63 +99,9 @@ async function processPhotos(
 
     await auditLog(userId, username, "PHOTO", prompt, response);
   } catch (error) {
-    console.error("Error processing photo:", error);
-
-    for (const toolMsg of state.toolMessages) {
-      try {
-        await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-      } catch {
-        // Ignore
-      }
-    }
-
-    if (String(error).includes("abort") || String(error).includes("cancel")) {
-      await ctx.reply("🛑 Query stopped.");
-    } else {
-      await ctx.reply(`❌ Error: ${String(error).slice(0, 200)}`);
-    }
+    await handleProcessingError(ctx, error, state.toolMessages);
   } finally {
     typing.stop();
-  }
-}
-
-/**
- * Process a buffered media group.
- */
-async function processMediaGroup(mediaGroupId: string): Promise<void> {
-  const group = pendingMediaGroups.get(mediaGroupId);
-  if (!group) return;
-
-  pendingMediaGroups.delete(mediaGroupId);
-
-  const userId = group.ctx.from?.id;
-  const username = group.ctx.from?.username || "unknown";
-  const chatId = group.ctx.chat?.id;
-
-  if (!userId || !chatId) return;
-
-  // Update status message
-  if (group.statusMsg) {
-    try {
-      await group.ctx.api.editMessageText(
-        group.statusMsg.chat.id,
-        group.statusMsg.message_id,
-        `📷 Processing ${group.items.length} photos...`
-      );
-    } catch {
-      // Ignore
-    }
-  }
-
-  await processPhotos(group.ctx, group.items, group.caption, userId, username, chatId);
-
-  // Delete status message
-  if (group.statusMsg) {
-    try {
-      await group.ctx.api.deleteMessage(group.statusMsg.chat.id, group.statusMsg.message_id);
-    } catch {
-      // Ignore
-    }
   }
 }
 
@@ -199,7 +148,8 @@ export async function handlePhoto(ctx: Context): Promise<void> {
     if (statusMsg) {
       try {
         await ctx.api.editMessageText(statusMsg.chat.id, statusMsg.message_id, "❌ Failed to download photo.");
-      } catch {
+      } catch (editError) {
+        console.debug("Failed to edit status message:", editError);
         await ctx.reply("❌ Failed to download photo.");
       }
     } else {
@@ -215,8 +165,8 @@ export async function handlePhoto(ctx: Context): Promise<void> {
     // Clean up status message
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
-    } catch {
-      // Ignore
+    } catch (error) {
+      console.debug("Failed to delete status message:", error);
     }
     return;
   }
@@ -224,37 +174,5 @@ export async function handlePhoto(ctx: Context): Promise<void> {
   // 5. Media group - buffer with timeout
   if (!mediaGroupId) return; // TypeScript guard
 
-  if (!pendingMediaGroups.has(mediaGroupId)) {
-    // Rate limit on first photo only
-    const [allowed, retryAfter] = rateLimiter.check(userId);
-    if (!allowed) {
-      await auditLogRateLimit(userId, username, retryAfter!);
-      await ctx.reply(`⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`);
-      return;
-    }
-
-    // Create new group
-    const statusMsg = await ctx.reply("📷 Receiving photos...");
-
-    pendingMediaGroups.set(mediaGroupId, {
-      items: [photoPath],
-      ctx,
-      caption: ctx.message?.caption,
-      statusMsg,
-      timeout: setTimeout(() => processMediaGroup(mediaGroupId), MEDIA_GROUP_TIMEOUT),
-    });
-  } else {
-    // Add to existing group
-    const group = pendingMediaGroups.get(mediaGroupId)!;
-    group.items.push(photoPath);
-
-    // Update caption if this message has one
-    if (ctx.message?.caption && !group.caption) {
-      group.caption = ctx.message.caption;
-    }
-
-    // Reset timeout
-    clearTimeout(group.timeout);
-    group.timeout = setTimeout(() => processMediaGroup(mediaGroupId), MEDIA_GROUP_TIMEOUT);
-  }
+  await photoBuffer.addToGroup(mediaGroupId, photoPath, ctx, userId, username, processPhotos);
 }
