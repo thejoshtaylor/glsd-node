@@ -17,6 +17,7 @@ import {
   SESSION_FILE,
   THINKING_KEYWORDS,
   THINKING_DEEP_KEYWORDS,
+  TEMP_PATHS,
 } from "./config";
 import { isPathAllowed, checkCommandSafety } from "./security";
 import { formatToolStatus } from "./formatting";
@@ -211,11 +212,10 @@ class ClaudeSession {
               if (["Read", "Write", "Edit"].includes(toolName)) {
                 const filePath = String(toolInput.file_path || "");
                 if (filePath) {
+                  // Allow reads from temp paths and .claude directories
                   const isTmpRead =
                     toolName === "Read" &&
-                    (filePath.startsWith("/tmp/") ||
-                      filePath.startsWith("/private/tmp/") ||
-                      filePath.startsWith("/var/folders/") ||
+                    (TEMP_PATHS.some((p) => filePath.startsWith(p)) ||
                       filePath.includes("/.claude/"));
 
                   if (!isTmpRead && !isPathAllowed(filePath)) {

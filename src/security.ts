@@ -15,6 +15,7 @@ import {
   RATE_LIMIT_WINDOW,
   CLAUDE_CLI_PATH,
   INTENT_CLASSIFIER_PROMPT,
+  TEMP_PATHS,
 } from "./config";
 
 // ============== Rate Limiter ==============
@@ -70,9 +71,6 @@ class RateLimiter {
 export const rateLimiter = new RateLimiter();
 
 // ============== Path Validation ==============
-
-// Temp paths that are always allowed (for bot-created files)
-const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/"];
 
 export function isPathAllowed(path: string): boolean {
   try {

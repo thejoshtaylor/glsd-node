@@ -208,6 +208,9 @@ export const RATE_LIMIT_WINDOW = parseInt(process.env.RATE_LIMIT_WINDOW || "60",
 export const SESSION_FILE = "/tmp/claude-telegram-session.json";
 export const TEMP_DIR = "/tmp/telegram-bot";
 
+// Temp paths that are always allowed for bot operations
+export const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/"];
+
 // Ensure temp directory exists
 await Bun.write(`${TEMP_DIR}/.keep`, "");
 
