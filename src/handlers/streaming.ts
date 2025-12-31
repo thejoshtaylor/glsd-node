@@ -77,31 +77,6 @@ export class StreamingState {
 }
 
 /**
- * Delete tracked messages.
- */
-export async function cleanupMessages(state: StreamingState, keepText = false): Promise<void> {
-  // Delete tool messages
-  for (const toolMsg of state.toolMessages) {
-    try {
-      // grammY messages don't have delete() method, need to use API
-      // This will be handled by the context in the callback
-    } catch {
-      // Ignore errors
-    }
-  }
-
-  if (!keepText) {
-    for (const msg of state.textMessages.values()) {
-      try {
-        // Same as above
-      } catch {
-        // Ignore errors
-      }
-    }
-  }
-}
-
-/**
  * Create a status callback for streaming updates.
  */
 export function createStatusCallback(ctx: Context, state: StreamingState): StatusCallback {

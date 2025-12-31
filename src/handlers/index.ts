@@ -8,4 +8,4 @@ export { handleVoice } from "./voice";
 export { handlePhoto } from "./photo";
 export { handleDocument } from "./document";
 export { handleCallback } from "./callback";
-export { StreamingState, createStatusCallback, cleanupMessages } from "./streaming";
+export { StreamingState, createStatusCallback } from "./streaming";
