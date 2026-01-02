@@ -148,6 +148,8 @@ launchctl load ~/Library/LaunchAgents/com.claude-telegram-ts.plist
 
 The bot will start automatically on login and restart if it crashes.
 
+**Prevent sleep:** To keep the bot running when your Mac is idle, go to **System Settings → Battery → Options** and enable **"Prevent automatic sleeping when the display is off"** (when on power adapter).
+
 **Logs:**
 
 ```bash
