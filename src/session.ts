@@ -159,7 +159,7 @@ class ClaudeSession {
     }
 
     // Build SDK V1 options - supports all features
-    const options = {
+    const options: Record<string, unknown> = {
       model: "claude-sonnet-4-20250514",
       cwd: WORKING_DIR,
       settingSources: ["project" as const],
@@ -171,6 +171,11 @@ class ClaudeSession {
       additionalDirectories: ALLOWED_PATHS,
       resume: this.sessionId || undefined,
     };
+
+    // Add Claude Code executable path if set (required for standalone builds)
+    if (process.env.CLAUDE_CODE_PATH) {
+      options.pathToClaudeCodeExecutable = process.env.CLAUDE_CODE_PATH;
+    }
 
     if (this.sessionId && !isNewSession) {
       console.log(`RESUMING session ${this.sessionId.slice(0, 8)}... (thinking=${thinkingLabel})`);
