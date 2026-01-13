@@ -8,7 +8,7 @@ import type { Context } from "grammy";
 import type { Message } from "grammy/types";
 import { InlineKeyboard } from "grammy";
 import type { StatusCallback } from "../types";
-import { convertMarkdownToHtml } from "../formatting";
+import { convertMarkdownToHtml, escapeHtml } from "../formatting";
 import {
   TELEGRAM_MESSAGE_LIMIT,
   TELEGRAM_SAFE_LIMIT,
@@ -102,7 +102,8 @@ export function createStatusCallback(
         // Show thinking inline, compact (first 500 chars)
         const preview =
           content.length > 500 ? content.slice(0, 500) + "..." : content;
-        const thinkingMsg = await ctx.reply(`🧠 <i>${preview}</i>`, {
+        const escaped = escapeHtml(preview);
+        const thinkingMsg = await ctx.reply(`🧠 <i>${escaped}</i>`, {
           parse_mode: "HTML",
         });
         state.toolMessages.push(thinkingMsg);

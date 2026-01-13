@@ -59,46 +59,70 @@ export async function handleText(ctx: Context): Promise<void> {
   const typing = startTypingIndicator(ctx);
 
   // 7. Create streaming state and callback
-  const state = new StreamingState();
-  const statusCallback = createStatusCallback(ctx, state);
+  let state = new StreamingState();
+  let statusCallback = createStatusCallback(ctx, state);
 
-  try {
-    // 8. Send to Claude with streaming
-    const response = await session.sendMessageStreaming(
-      message,
-      username,
-      userId,
-      statusCallback,
-      chatId,
-      ctx
-    );
+  // 8. Send to Claude with retry logic for crashes
+  const MAX_RETRIES = 1;
 
-    // 9. Audit log
-    await auditLog(userId, username, "TEXT", message, response);
-  } catch (error) {
-    console.error("Error processing message:", error);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await session.sendMessageStreaming(
+        message,
+        username,
+        userId,
+        statusCallback,
+        chatId,
+        ctx
+      );
 
-    // Clean up any partial messages
-    for (const toolMsg of state.toolMessages) {
-      try {
-        await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-      } catch (error) {
-        console.debug("Failed to delete tool message:", error);
+      // 9. Audit log
+      await auditLog(userId, username, "TEXT", message, response);
+      break; // Success - exit retry loop
+    } catch (error) {
+      const errorStr = String(error);
+      const isClaudeCodeCrash = errorStr.includes("exited with code");
+
+      // Clean up any partial messages from this attempt
+      for (const toolMsg of state.toolMessages) {
+        try {
+          await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
+        } catch {
+          // Ignore cleanup errors
+        }
       }
-    }
 
-    // Check if it was a cancellation
-    if (String(error).includes("abort") || String(error).includes("cancel")) {
-      // Only show "Query stopped" if it was an explicit stop, not an interrupt from a new message
-      const wasInterrupt = session.consumeInterruptFlag();
-      if (!wasInterrupt) {
-        await ctx.reply("🛑 Query stopped.");
+      // Retry on Claude Code crash (not user cancellation)
+      if (isClaudeCodeCrash && attempt < MAX_RETRIES) {
+        console.log(
+          `Claude Code crashed, retrying (attempt ${attempt + 2}/${MAX_RETRIES + 1})...`
+        );
+        await session.kill(); // Clear corrupted session
+        await ctx.reply(`⚠️ Claude crashed, retrying...`);
+        // Reset state for retry
+        state = new StreamingState();
+        statusCallback = createStatusCallback(ctx, state);
+        continue;
       }
-    } else {
-      await ctx.reply(`❌ Error: ${String(error).slice(0, 200)}`);
+
+      // Final attempt failed or non-retryable error
+      console.error("Error processing message:", error);
+
+      // Check if it was a cancellation
+      if (errorStr.includes("abort") || errorStr.includes("cancel")) {
+        // Only show "Query stopped" if it was an explicit stop, not an interrupt from a new message
+        const wasInterrupt = session.consumeInterruptFlag();
+        if (!wasInterrupt) {
+          await ctx.reply("🛑 Query stopped.");
+        }
+      } else {
+        await ctx.reply(`❌ Error: ${errorStr.slice(0, 200)}`);
+      }
+      break; // Exit loop after handling error
     }
-  } finally {
-    stopProcessing();
-    typing.stop();
   }
+
+  // 10. Cleanup
+  stopProcessing();
+  typing.stop();
 }
