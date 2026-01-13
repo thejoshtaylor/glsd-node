@@ -12,8 +12,8 @@ After seeing my co-founder [Francesco](https://x.com/frankdilo) use Claude Code 
 
 After some iteration, I landed on this system/setup:
 
-1. **I've created a `fab-dev` folder** with a CLAUDE.md that teaches Claude about me, my preferences, where my notes live, my workflows.
-2. _OPTIONAL_: I've asked Claude to **[symlink](https://en.wikipedia.org/wiki/Symbolic_link) configuration files** into this new central folder, so I can edit them easily and improve my dev setup. For example, I symlinked ~/.claude/commands here, so I can ask Claude to add new commands which will be available everywhere. I also symlinked ~/.zshrc into this folder, so I can ask Claude to edit and improve my shell configuration too.
+1. **I've created a `fab-dev` folder** with a `CLAUDE.md` that teaches Claude about me, my preferences, where my notes live, my workflows.
+2. _OPTIONAL_: I've asked Claude to **[symlink](https://en.wikipedia.org/wiki/Symbolic_link) configuration files** into this new central folder, so I can edit them easily and improve my dev setup. For example, I symlinked `~/.claude/commands` and `~/.claude/skills` here, so I can ask Claude to add new commands or skills which will be available everywhere. I also symlinked `~/.zshrc` into this folder for shell configuration.
 3. _OPTIONAL_: **I've tracked the folder as a Git repository** so I can also easily version control it, or share it on multiple Macs in the future if I need it.
 4. **I set this "fab-dev" folder as the working directory** for this bot (via `CLAUDE_WORKING_DIR`).
 
@@ -21,13 +21,15 @@ After some iteration, I landed on this system/setup:
 
 The main "Notes" folder referenced in `CLAUDE.md` is an iCloud folder that I added to [Ulysses](https://ulysses.app/) and [iA Writer](https://ia.net/writer), so I can see changes made by my assistant live, wherever I am. iCloud is insanely good at this, pushing updates live to all devices in the background.
 
-Also, I've extended its capabilities by installing [MCPs](https://code.claude.com/docs/en/mcp), adding [commands](https://code.claude.com/docs/en/slash-commands), and sometimes [skills](https://code.claude.com/docs/en/skills) (but I don't use them much).
+Also, I've extended its capabilities by installing [MCPs](https://code.claude.com/docs/en/mcp), adding [commands](https://code.claude.com/docs/en/slash-commands), and [skills](https://code.claude.com/docs/en/skills). Skills are particularly powerful — they're auto-triggered based on context and define specific workflows for common tasks like creating todos, researching topics, or planning workouts.
 
 **The magical part: when I need a new capability, I just ask Claude to build it.** Even via the Telegram bot, on the go.
 
 For example, I wanted my assistant to summarize videos, so I asked it to create scripts for fetching YouTube subtitles (with fallback to downloading and transcribing locally). Now I can request video summaries from anywhere via Telegram.
 
 ![Video summary example](../assets/demo-video-summary.gif)
+
+So wether I launch a Claude Code session (usually with the `--dangerously-skip-permissions` flag) on my Mac or chat with the Telegram bot, **Claude is now my 24/7 executive assistant**.
 
 ## CLAUDE.md is the Assistant's Brain
 
@@ -37,23 +39,21 @@ Since Claude runs by default with prompt permissions bypassed (more on this in [
 
 Here's a template based on my own setup:
 
-```
+````
 # CLAUDE.md
 
 This file provides guidance to Claude Code so it can act as [Your Name]'s personal assistant.
 
 ## Quick Reference
 
-**Key paths:**
-- Notes: `~/Documents/Notes/`
-- Personal docs: `~/Documents/Personal/`
-- Downloads: `~/Downloads/`
-- iCloud: `~/Library/Mobile Documents/com~apple~CloudDocs/`
-
 **This folder:**
-- `scripts/` - Utility scripts Claude can run
-- `claude/commands/` - Custom slash commands
-- `claude/skills/` - Auto-triggered skills
+- `cli/` - Utility scripts (run with `bun run cli/...`)
+- `.claude/skills/` - Task workflows (things-todo, gmail, research, workout-planning, etc.)
+- `.claude/agents/` - Subagents for pulse and digests
+
+**Key paths:**
+- Notes: `~/Documents/Notes/` (Me/, Research/, Health/, Journal/, [Hobby]/)
+- Personal docs: `~/Documents/Personal/`
 
 ## About [Your Name]
 
@@ -61,106 +61,76 @@ This file provides guidance to Claude Code so it can act as [Your Name]'s person
 
 [Brief context about work, lifestyle, hobbies, etc.]
 
-**Personal context**: For detailed personal information (family, friends, preferences, etc.), read `~/Documents/Notes/Me/personal-context.md`. Reference this file when answering personal questions.
+For personal context, goals, and finances — see the Me/ files below.
 
-**Life goals**: For high-level objectives and long-term goals, read `~/Documents/Notes/life-goals.md`.
-
-**Keeping context fresh**: When new personal information emerges during conversations (new friends, places, habits, preferences, life updates), proactively update `Me/personal-context.md`. When new life goals emerge, update `life-goals.md`.
+**Keeping context fresh**: When new personal information emerges, proactively update the relevant Me/ notes.
 
 ## How to Assist
 
+- **Choose the right source(s)**: Autonomously decide where to look. Search multiple sources in parallel when needed (web, notes, reddit, etc.)
 - **Always check the date**: For time-sensitive questions, run `date` first
-- **Communication style**: [e.g., "Balanced and friendly, not too terse, use emojis sparingly"]
+- **Communication style**: [e.g., "Balanced and friendly, use emojis sparingly"]
 - **Autonomy**: Handle routine tasks independently, ask before significant actions
-- **Proactive**: Suggest next steps after completing work
 - **Formatting**: Prefer bullet lists over markdown tables
+- **Priority**: Highlight important items; don't just dump lists
 
-## Task Management
+**CRITICAL**: When asked to remember something, update the relevant file:
+- Personal goal → `life-goals.md`
+- Personal context → `personal-context.md`
+- Claude behavior → `CLAUDE.md`
 
-Use the [Things/Todoist/etc.] MCP/script to read and write tasks.
+# KNOWLEDGE & FILES
 
-**When I ask "what's on my plate"**: Check both tasks AND calendar automatically.
+Notes are stored in `~/Documents/Notes/` (synced to iCloud). Use `qmd` for semantic search:
 
-**Creating tasks:**
-- Check existing projects first to route tasks correctly
-- Unless specified, schedule new tasks for Today
-- Include relevant context in task description
+    qmd search "keywords"   # Fast keyword matching
+    qmd query "question"    # LLM reranking (best quality)
 
-**Task routing** (if your task manager supports IDs/UUIDs):
-- Work tasks → Work area or specific project ID
-- Personal tasks → appropriate project (Health, Shopping, etc.)
-- [Hobby] tasks → dedicated project
+## Personal Context (Me/)
+
+Source-of-truth files:
+- `personal-context.md` — Family, friends, preferences, habits
+- `life-goals.md` — Long-term objectives
+- `pulse.md` — Current life digest
+- `finances.md` — Financial overview
+
+## Other Folders
+
+- `Journal/` — Monthly entries by year
+- `Health/` — Diet, workouts, training plan
+- `Research/` — Research notes
+- `[Hobby]/` — Hobby-specific notes
+
+## Quick Lookup
+
+- Life/priorities → `Me/pulse.md` + recent Journal
+- Goals → `Me/life-goals.md`
+- Workouts → `Health/` or `bun run cli/utils/health.ts workouts week`
+
+# TASK MANAGEMENT
+
+## Tasks
+
+Use the `things-todo` skill for task creation, scheduling, and project routing.
+
+**When asked "what's on my plate"**: Check both tasks AND calendar.
 
 ## Calendar
 
-Use `scripts/calendar.sh` to check my calendar.
+    bun run cli/google/calendar.ts today|tomorrow|week|range <from> <to>
 
 ## Email
 
-Use `scripts/gmail.sh` (or similar) to read and manage email:
+Use the `gmail` skill for email and email-to-task workflows.
 
-gmail.sh inbox [--unread]     # List inbox
-gmail.sh read <id>            # Read email
-gmail.sh search <query>       # Search emails
-gmail.sh archive <id>         # Archive email
+## Work Integrations (optional)
 
-**Email → Task workflow**: Route to correct project, set deadline if mentioned, include email link in task description, archive after task created.
+    bun run cli/integrations/slack.ts channels|messages|recent
+    bun run cli/integrations/notion.ts search|page|databases
 
-## Notes
+````
 
-`~/Documents/Notes/` contains:
-
-- `pulse.md` - Daily life digest auto-generated via the `/life-pulse` command
-- `life-goals.md` - Long-term objectives (separate from pulse)
-- `Me/` - Personal context, measurements, home info
-- `Research/` - Research files and comparisons
-- `Health/` - Health tracking, workouts
-- `[Hobby]/` - Notes for specific interests
-
-## Research
-
-When I ask to research something:
-
-1. Check existing research in `~/Documents/Notes/Research/`
-2. Search thoroughly using web search
-3. Save findings to `~/Documents/Notes/Research/YYYY-MM-DD-topic.md`
-4. Include sources and a clear recommendation
-
-## Personal Documents
-
-Important documents in `~/Documents/Personal/` - identity docs, medical records, receipts, etc.
-
-## Health
-
-Use `scripts/health.sh` for Apple Health data (requires Health Auto Export app).
-
-When I ask for a workout:
-
-1. Check my training plan in `Health/training.md`
-2. Look at recent workout logs
-3. Suggest appropriate workout and create the log file
-
-## Media
-
-Scripts for working with video/media:
-
-- `video-download.sh <url>` - Download videos (YouTube, etc.)
-- `video-transcript.sh <url>` - Get YouTube transcripts
-- `video-to-gif.sh <video>` - Convert to GIF
-
-## Telegram Bot
-
-Claude Code can run in this folder via a Telegram bot (code located at `~/dev/claude-telegram-bot/`).
-
-**Voice transcription keywords**: To add terms for recognition, edit `TRANSCRIPTION_CONTEXT` in `.env`.
-
-**MCP servers**: Edit `~/dev/claude-telegram-bot/mcp-config.ts` to add new servers.
-
-**Restart:** Use `/restart` in Telegram, or `cbot-restart` alias.
-
-```
-
-The _"keeping context fresh"_ instruction creates a sort of file-based memory system, since Claude automatically reads and updates context files (notes) as it learns new things about me.
+The _"keeping context fresh"_ instruction creates a sort of **file-based memory system**, since Claude automatically reads and updates context files (notes) as it learns new things about me.
 
 I also occasionally ask Claude to check my Notes folder, Things projects, etc., and update the `CLAUDE.md` file with the latest information, so it's fine to hardcode some information there since it's quite easy to let it update itself.
 
@@ -175,11 +145,11 @@ I recorded demos on my Mac, but this is what I normally do on the go, from my iP
 The setup is simple:
 
 1. **[Health Auto Export](https://www.healthyapps.dev/)** - An iOS app that syncs Apple Health data to iCloud as daily JSON files
-2. **A script** that reads those files and returns structured health data
-3. **CLAUDE.md instructions** that tell Claude where my training plan lives and how to create workout logs
+2. **A CLI script** (`cli/utils/health.ts`) that reads those files and returns structured health data — you can ask Claude to build this kind of script quite easily
+3. **A `workout-planning` skill** that defines the workflow for creating workouts based on training plan and recent activity
 4. **A Notes folder** (synced via iCloud) where workout logs are saved as markdown
 
-I asked Claude to create the `health.sh` script, which parses Health Auto Export's JSON files and returns my current health metrics plus historical trends for comparison.
+I asked Claude to create the health script, which parses Health Auto Export's JSON files and returns my current health metrics plus historical trends for comparison.
 
 Here's what it returns:
 
@@ -219,27 +189,39 @@ Here's what it returns:
 
 Now I can ask things like "how did I sleep?" or "how's my recovery looking?" from anywhere.
 
-In `CLAUDE.md`, I've added this instruction:
+Instead of embedding workout instructions in CLAUDE.md, I now use a **`workout-planning` skill** (`.claude/skills/workout-planning/SKILL.md`):
 
 ```markdown
-## Workouts
+---
+name: workout-planning
+description: Create personalized workout plans based on training program and recent activity. Use when asked for a workout, exercise routine, gym plan, or "what should I train today".
+allowed-tools: Read, Write, Bash(cli/utils/health.ts workouts:*), Glob
+---
 
-Use `scripts/health.sh` for Apple Health data.
-Use `scripts/workouts.sh` for workout history.
+# Workout Planning
 
-**Workout requests** - when I ask for a workout:
+When asked for a workout:
 
-1. Read training plan (`Health/training.md`) - from my PT, always the basis
-2. Check recent logs in `Health/Workouts/` to see what I did last
-3. Propose a workout that makes sense (if last was upper body → suggest lower or full body)
-4. **ALWAYS create the log file immediately** as `Health/Workouts/YYYY-MM-DD-workout.md`
+1. **Read training program**: `~/Documents/Notes/Health/training.md` (PT plan)
+2. **Check recent logs**: `~/Documents/Notes/Health/Workouts/`
+3. **Check workout frequency**: Run `health.ts workouts week` to see last 7 days
+4. **Propose appropriate workout** based on what's scheduled and recent activity
+5. **Immediately create** the workout file: `Health/Workouts/YYYY-MM-DD-workout.md`
+```
+
+The skill also includes a CLI for checking workout history:
+
+```bash
+bun run cli/utils/health.ts workouts           # Today's workouts
+bun run cli/utils/health.ts workouts week      # Last 7 days
+bun run cli/utils/health.ts workouts enrich    # Add Health data to today's log
 ```
 
 When I message "give me a workout", Claude:
 
 1. Checks my training plan from my PT
 2. Looks at what I did in recent workouts
-3. Considers my recovery score from `health.sh`
+3. Considers my recovery score from the health script
 4. Creates a workout log file like this:
 
 ```markdown
@@ -315,7 +297,7 @@ You are a health-conscious friend giving a quick check-in on health metrics.
 ## Data Gathering
 
 Run the health script:
-~/scripts/health.sh
+bun run cli/utils/health.ts
 
 ## Analysis
 
@@ -353,7 +335,7 @@ allowed-tools: Bash, Read, Write, mcp__things__*, Task
 1. **Gather Data** (run in parallel):
 
 - Things: `get_today`, `get_upcoming`, `get_projects` (lightweight, main agent handles)
-- Calendar: `~/scripts/calendar.sh range <today> <today+28>`
+- Calendar: `bun run cli/google/calendar.ts range <today> <today+28>`
 - Journal: Read 2-3 recent entries
 - **Email**: Invoke `gmail-digest` subagent (do NOT run in background)
 - **Work**: Invoke `linear-digest` subagent (do NOT run in background)
@@ -470,70 +452,98 @@ Another pattern I use all the time is having Claude do thorough research for me.
 
 ![Research example](../assets/demo-research.gif)
 
-The setup looks like this:
-
-1. **A Research folder** in my Notes where findings are saved as markdown files
-2. **CLAUDE.md instructions** that tell Claude how to research and where to save results
-3. **Optional scripts** for specialized sources (like Reddit)
-
-And in `CLAUDE.md`, I've added this instruction:
+The setup now uses a **`research` skill** that handles the entire workflow:
 
 ```markdown
-## Doing Research
+---
+name: research
+description: Research topics thoroughly using web search, Reddit, and Hacker News, then save findings to Notes. Use when asked to research, compare options, investigate a topic, or find pros/cons.
+allowed-tools: WebSearch, WebFetch, Bash(reddit.sh:*), Bash(hn.sh:*), Read, Write, Edit, Glob
+---
 
-**IMPORTANT: Every research task MUST end with saving results to `~/Documents/Notes/Research/`. This is not optional.**
+# Research Workflow
 
-When I ask to research, compare, or investigate something:
+**CRITICAL: Every research task MUST save results to `~/Documents/Notes/Research/` BEFORE responding.**
 
-1. **Check existing research first** in `~/Documents/Notes/Research/`
-2. **Search thoroughly** using web search
-3. **Synthesize findings** - actionable insights with pros/cons and clear recommendation
-4. **Save to file (MANDATORY)** - `~/Documents/Notes/Research/yyyy-mm-dd-{brief-topic}.md`
-   - Do this BEFORE responding to the user
-5. **Update if exists** - same topic → update existing file
+## Process
 
-**File format:**
-
-\`\`\`markdown
-
-# {Topic Title}
-
-**Date:** {YYYY-MM-DD}
-**Context:** {Brief note on why this research was needed}
-
-## Summary
-
-{1-3 sentence recommendation}
-
-{other sections as needed}
-
-## Sources
-
-- [Source Title](url)
-  \`\`\`
+1. **Check existing research** in `~/Documents/Notes/Research/` first
+2. **Search thoroughly** using multiple sources:
+   - WebSearch for general information
+   - Reddit for community insights
+   - Hacker News for tech/startup discussions
+3. **Synthesize** findings with clear recommendation
+4. **Save to file** - update if exists
 ```
 
-Reddit is an amazing source for real-world opinions and experiences, and I've discovered that you can just append `.json` to Reddit URLs to get the raw JSON data, so I asked Claude to build a Reddit scraper that returns top posts and comments from relevant subreddits:
+The skill includes scripts for community sources:
+
+**Reddit** - Real-world opinions and experiences:
 
 ```bash
-# Top recent posts from specific subreddits
 reddit.sh top iRacing,simracing --time week --limit 10 --preview
-
-# Search for specific topics
 reddit.sh search "BMW M2 front splitter" --time all --limit 20 --preview
-
-# Product recommendations
-reddit.sh search "best racing wheel 2025" --time year --limit 15 --preview
 ```
 
-The `--preview` flag includes the full post content and top comments, which is where the real insights are.
+**Hacker News** - Tech and startup discussions:
 
-So, when I message something like "research upgrade options for my sim racing rig", Claude:
+```bash
+hn.sh top --limit 5 --min-score 100        # Top stories this week
+hn.sh search "startup pricing" --preview    # Search with comments
+```
 
-1. **Checks existing research** - looks in `Research/` for any previous files on sim racing or related topics
-2. **Searches the web** - uses web search for product reviews, comparisons, and expert opinions
-3. **Searches Reddit** - finds community discussions with real-world experiences and recommendations
-4. **Synthesizes everything** - combines official specs, reviews, and community feedback into actionable insights
+The `--preview` flag includes full post content and top comments, which is where the real insights are.
+
+When I message something like "research upgrade options for my sim racing rig", Claude:
+
+1. **Checks existing research** - looks in `Research/` for any previous files on the topic
+2. **Searches the web** - uses web search for product reviews and expert opinions
+3. **Searches Reddit and HN** - finds community discussions with real-world experiences
+4. **Synthesizes everything** - combines specs, reviews, and community feedback
 5. **Saves the research** - creates a dated file like `2025-12-30-sim-racing-rig-upgrade.md`
 
 The result is a comprehensive research document with clear recommendations and links to all sources. I love that I can trigger this anywhere and anytime.
+
+## Example: Claude as a Co-Worker
+
+Since integrating **Slack, Linear, and Notion** into my setup, Claude can act as a co-worker who keeps track of what's happening at work.
+
+When I've been away for a few days, I can ask things like:
+
+- "What are my teammates up to? Any blockers?"
+- "Catch me up on the #progress-updates channel"
+- "What's the latest on the API v2 project?"
+
+Claude checks Slack for recent messages and threads, Linear for issue updates and blockers, and Notion for any new specs or docs — then summarizes what's relevant to me.
+
+### Setting Up Slack Access
+
+To make this work, you need to create a Slack app with the right permissions:
+
+1. **Create a Slack app** at [api.slack.com/apps](https://api.slack.com/apps)
+2. **Add OAuth scopes** under "OAuth & Permissions":
+   - `channels:history` - Read messages in public channels
+   - `channels:read` - List channels
+   - `groups:history` - Read messages in private channels (optional)
+   - `groups:read` - List private channels (optional)
+3. **Install the app** to your workspace and copy the Bot User OAuth Token
+4. **Invite the bot** to channels you want it to read (use `/invite @YourBotName` in each channel)
+
+The bot can only see messages in channels it's been invited to, which gives you control over what Claude can access.
+
+### The CLI
+
+I asked Claude to build a simple Slack CLI:
+
+```bash
+bun run cli/integrations/slack.ts channels              # List joined channels
+bun run cli/integrations/slack.ts messages general      # Recent messages from #general
+bun run cli/integrations/slack.ts recent                # Recent across all channels
+bun run cli/integrations/slack.ts thread <url>          # Full thread from a Slack URL
+```
+
+Combined with Linear and Notion access, Claude can give me a complete picture of what's been happening at work — all from a quick Telegram message while I'm grabbing coffee.
+
+In the end, it's up to you wether to create scripts, skills, commands, or any combination of them to empower your agent to assist you. Sky's the limits, and seems like this is evolving every day now.
+
+I'd love to know what you're building, [hit me up on X](https://x.com/linuz90).
