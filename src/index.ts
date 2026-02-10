@@ -20,6 +20,8 @@ import {
   handleVoice,
   handlePhoto,
   handleDocument,
+  handleAudio,
+  handleVideo,
   handleCallback,
 } from "./handlers";
 
@@ -70,6 +72,13 @@ bot.on("message:photo", handlePhoto);
 
 // Document messages
 bot.on("message:document", handleDocument);
+
+// Audio messages
+bot.on("message:audio", handleAudio);
+
+// Video messages (regular videos and video notes)
+bot.on("message:video", handleVideo);
+bot.on("message:video_note", handleVideo);
 
 // ============== Callback Queries ==============
 
