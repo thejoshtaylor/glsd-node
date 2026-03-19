@@ -20,7 +20,8 @@ import {
   extractNumberedOptions,
   buildActionKeyboard,
 } from "../formatting";
-import { getLastActionBar, setLastActionBar } from "./commands";
+import { getLastActionBar, setLastActionBar, getPendingNewProject, setPendingNewProject } from "./commands";
+import { addProject } from "../registry";
 
 /**
  * Handle incoming text messages.
@@ -38,6 +39,42 @@ export async function handleText(ctx: Context): Promise<void> {
   // 1. Authorization check
   if (!isAuthorized(userId, ALLOWED_USERS)) {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
+    return;
+  }
+
+  // 1b. Check for pending new project creation
+  const pendingProject = getPendingNewProject();
+  if (pendingProject && pendingProject.chatId === chatId) {
+    setPendingNewProject(null);
+    const projectName = message.trim();
+
+    if (!projectName) {
+      await ctx.reply("Project creation cancelled (empty name).");
+      return;
+    }
+
+    try {
+      const fullPath = addProject(pendingProject.parentPath, projectName);
+
+      // Kill active session and switch
+      if (session.isRunning) {
+        await session.stop();
+        await new Promise((r) => setTimeout(r, 100));
+        session.clearStopRequested();
+      }
+      if (session.isActive) {
+        await session.kill();
+      }
+
+      session.setWorkingDir(fullPath.replace(/\//g, "\\"));
+
+      await ctx.reply(
+        `📂 Created and switched to <b>${projectName}</b>\n<code>${fullPath}</code>`,
+        { parse_mode: "HTML" }
+      );
+    } catch (error) {
+      await ctx.reply(`Failed to create project: ${String(error).slice(0, 200)}`);
+    }
     return;
   }
 

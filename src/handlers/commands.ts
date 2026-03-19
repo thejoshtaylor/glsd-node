@@ -11,7 +11,7 @@ import { session } from "../session";
 import { ALLOWED_USERS, RESTART_FILE } from "../config";
 import { isAuthorized } from "../security";
 import { auditLog, sleep, startTypingIndicator } from "../utils";
-import { parseRegistry } from "../registry";
+import { parseRegistry, getAllowedParentPaths, addProject, isUnderAllowedPath } from "../registry";
 import { searchVault, formatResults } from "../vault-search";
 import { StreamingState, createStatusCallback } from "./streaming";
 import {
@@ -431,7 +431,7 @@ export async function handleProject(ctx: Context): Promise<void> {
 
   // Build inline keyboard: one button per row
   // Active projects get a star prefix, current project gets a checkmark
-  const buttons = projects.map((p, index) => {
+  const buttons: { text: string; callback_data: string }[][] = projects.map((p, index) => {
     const isCurrent =
       p.location.replace(/\\/g, "/") === currentDir;
     const isActive = p.status === "Active";
@@ -447,6 +447,14 @@ export async function handleProject(ctx: Context): Promise<void> {
       },
     ];
   });
+
+  // Add "+ New Project" button at the bottom
+  buttons.push([
+    {
+      text: "+ New Project",
+      callback_data: "newproject:browse",
+    },
+  ]);
 
   await ctx.reply(
     `📂 <b>Switch Project</b>\n\n` +
@@ -567,6 +575,18 @@ export async function handleGsd(ctx: Context): Promise<void> {
       },
     }
   );
+}
+
+// ============== New Project State ==============
+
+let pendingNewProject: { parentPath: string; chatId: number } | null = null;
+
+export function getPendingNewProject() {
+  return pendingNewProject;
+}
+
+export function setPendingNewProject(state: { parentPath: string; chatId: number } | null) {
+  pendingNewProject = state;
 }
 
 // ============== Action Bar Tracking ==============

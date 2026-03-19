@@ -13,8 +13,8 @@ import { ALLOWED_USERS } from "../config";
 import { isAuthorized } from "../security";
 import { auditLog, sleep, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
-import { parseRegistry } from "../registry";
-import { GSD_OPERATIONS, parseRoadmap, handleGsd, handleProject, handleResume, handleRetry, sendGsdCommand } from "./commands";
+import { parseRegistry, getAllowedParentPaths, addProject } from "../registry";
+import { GSD_OPERATIONS, parseRoadmap, handleGsd, handleProject, handleResume, handleRetry, sendGsdCommand, setPendingNewProject } from "./commands";
 
 /**
  * Handle callback queries from inline keyboards.
@@ -48,7 +48,17 @@ export async function handleCallback(ctx: Context): Promise<void> {
     return;
   }
 
-  // 2c. Handle quick action callbacks: action:{name}
+  // 2c. Handle new project callbacks
+  if (callbackData === "newproject:browse") {
+    await handleNewProjectBrowse(ctx, callbackData);
+    return;
+  }
+  if (callbackData.startsWith("newproject-path:")) {
+    await handleNewProjectPathSelect(ctx, callbackData);
+    return;
+  }
+
+  // 2d. Handle quick action callbacks: action:{name}
   if (callbackData.startsWith("action:")) {
     await handleActionCallback(ctx, callbackData, chatId);
     return;
@@ -562,5 +572,91 @@ async function handleGsdPhaseCallback(
   await ctx.answerCallbackQuery({ text: label });
 
   await sendGsdCommand(ctx, command, label, username, userId, chatId);
+}
+
+/**
+ * Handle "New Project" browse callback — show allowed parent paths.
+ */
+async function handleNewProjectBrowse(
+  ctx: Context,
+  _callbackData: string
+): Promise<void> {
+  const paths = getAllowedParentPaths();
+
+  if (paths.length === 0) {
+    await ctx.answerCallbackQuery({
+      text: "No allowed paths configured",
+      show_alert: true,
+    });
+    return;
+  }
+
+  const buttons = paths.map((p, index) => {
+    // Show just the last 2-3 path segments for readability
+    const segments = p.split("/");
+    const shortLabel = segments.length > 3
+      ? ".../" + segments.slice(-2).join("/")
+      : p;
+    return [
+      {
+        text: shortLabel,
+        callback_data: `newproject-path:${index}`,
+      },
+    ];
+  });
+
+  try {
+    await ctx.editMessageText(
+      `📁 <b>New Project</b>\n\nSelect parent directory:`,
+      {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: buttons },
+      }
+    );
+  } catch (error) {
+    console.debug("Failed to edit new project message:", error);
+  }
+
+  await ctx.answerCallbackQuery();
+}
+
+/**
+ * Handle parent path selection — ask user to type project name.
+ */
+async function handleNewProjectPathSelect(
+  ctx: Context,
+  callbackData: string
+): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId) {
+    await ctx.answerCallbackQuery({ text: "Invalid chat" });
+    return;
+  }
+
+  const index = parseInt(callbackData.replace("newproject-path:", ""), 10);
+  const paths = getAllowedParentPaths();
+
+  if (isNaN(index) || index < 0 || index >= paths.length) {
+    await ctx.answerCallbackQuery({ text: "Invalid path selection" });
+    return;
+  }
+
+  const parentPath = paths[index]!;
+
+  // Store pending state
+  setPendingNewProject({ parentPath, chatId });
+
+  try {
+    await ctx.editMessageText(
+      `📁 <b>New Project</b>\n\n` +
+        `Parent: <code>${parentPath}</code>\n\n` +
+        `Type the project name:`,
+      { parse_mode: "HTML" }
+    );
+  } catch (error) {
+    console.debug("Failed to edit new project path message:", error);
+  }
+
+  await ctx.answerCallbackQuery({ text: "Type the project name" });
 }
 
