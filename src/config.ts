@@ -35,7 +35,7 @@ function findClaudeCli(): string {
 
   // Try to find claude in PATH
   try {
-    const result = execSync("where claude", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    const result = execSync("where claude", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     const firstLine = result.trim().split(/\r?\n/)[0];
     if (firstLine) return firstLine;
   } catch {

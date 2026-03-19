@@ -37,7 +37,7 @@ function killProcessTree(pid: number): void {
   try {
     if (process.platform === "win32") {
       // Windows: taskkill /T /F is the only reliable method
-      execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
+      execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore", windowsHide: true });
     } else {
       // Unix: graceful SIGTERM, then force SIGKILL after 5s
       process.kill(-pid, "SIGTERM");
@@ -344,6 +344,7 @@ class ClaudeSession {
       env,
       stdio: ["pipe", "pipe", "pipe"],
       shell: process.platform === "win32",
+      windowsHide: true,
     });
 
     // Pipe prompt via stdin (avoids command-line escaping issues on Windows)

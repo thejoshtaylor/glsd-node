@@ -107,6 +107,7 @@ async function extractText(
       const result = execSync(`pdftotext -layout "${filePath}" -`, {
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
       });
       return result;
     } catch (error) {
@@ -160,17 +161,19 @@ async function extractArchive(
     try {
       execSync(`tar -xf "${archivePath}" -C "${extractDir}"`, {
         stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
       });
     } catch {
       // Fallback to PowerShell Expand-Archive
       execSync(
         `powershell.exe -NoProfile -Command "Expand-Archive -Force -Path '${archivePath}' -DestinationPath '${extractDir}'"`,
-        { stdio: ["pipe", "pipe", "pipe"] }
+        { stdio: ["pipe", "pipe", "pipe"], windowsHide: true }
       );
     }
   } else if (ext === ".tar" || ext === ".tar.gz" || ext === ".tgz") {
     execSync(`tar -xf "${archivePath}" -C "${extractDir}"`, {
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
   } else {
     throw new Error(`Unknown archive type: ${ext}`);
