@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Phase 05 context gathered
-last_updated: "2026-03-20T08:02:42.716Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-20T08:38:24.014Z"
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 20
+  completed_plans: 19
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-19)
 
 **Core value:** Control Claude Code remotely from Telegram across multiple projects simultaneously, each in its own channel with its own Claude session.
-**Current focus:** Phase 04 — callback-handler-integration-fixes
+**Current focus:** Phase 05 — fix-session-metrics-and-gsd-persistence
 
 ## Current Position
 
-Phase: 04 (callback-handler-integration-fixes) — EXECUTING
-Plan: 1 of 1
+Phase: 05 (fix-session-metrics-and-gsd-persistence) — EXECUTING
+Plan: 1 of 2
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Plan: 1 of 1
 | Phase 03 P02 | 6 | 2 tasks | 4 files |
 | Phase 03 P04 | 2 | 3 tasks | 2 files |
 | Phase 04 P01 | 15 | 2 tasks | 4 files |
+| Phase 05 P02 | 12 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,7 @@ Phase 2, Plan 1 (MappingStore + GSD pure functions):
 - [Phase 04]: callbackWg package-level var deleted; bot WaitGroup injected via HandleCallback signature for graceful shutdown drain
 - [Phase 04]: HandleGsd in command.go also needed globalLimiter param (called enqueueGsdCommand) — auto-fixed as Rule 3 blocking issue
 - [Phase 04]: cfg.WorkingDir retained as fallback in handleCallbackResume/New matching command.go canonical pattern
+- [Phase 05]: HandleGsd in command.go also needed persist param threaded — auto-fixed Rule 3 blocking issue (same pattern as Phase 04)
 
 ### Pending Todos
 
@@ -153,6 +155,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:02:42.708Z
-Stopped at: Phase 05 context gathered
-Resume file: .planning/phases/05-fix-session-metrics-and-gsd-persistence/05-CONTEXT.md
+Last session: 2026-03-20T08:38:24.006Z
+Stopped at: Completed 05-02-PLAN.md
+Resume file: None

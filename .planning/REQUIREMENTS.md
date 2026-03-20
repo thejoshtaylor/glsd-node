@@ -51,7 +51,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Session Persistence
 
-- [ ] **PERS-01**: Bot saves session state (session ID, working dir, conversation context) to JSON
+- [x] **PERS-01**: Bot saves session state (session ID, working dir, conversation context) to JSON
 - [x] **PERS-02**: Bot restores sessions automatically on restart for all mapped channels
 - [x] **PERS-03**: Session state persists across bot crashes and service restarts
 
@@ -142,7 +142,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CMD-03 | Phase 1 | Complete |
 | CMD-04 | Phase 1 | Complete |
 | CMD-05 | Phase 1 | Complete |
-| PERS-01 | Phase 5 | Pending |
+| PERS-01 | Phase 5 | Complete |
 | PERS-02 | Phase 1 | Complete |
 | PERS-03 | Phase 1 | Complete |
 | GSD-01 | Phase 2 | Complete |
