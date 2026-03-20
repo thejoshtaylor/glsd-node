@@ -22,12 +22,13 @@ Run and orchestrate multiple Claude Code instances across projects from a centra
 
 ## Current State
 
-**v1.1 shipped 2026-03-20** — Bugfix release complete.
+**v1.2 in progress** — Phase 10 complete as of 2026-03-20.
 
 - v1.0: 7 phases, 24 plans — full Go rewrite shipped
 - v1.1: 2 phases, 2 plans — polling stability + channel auth
-- ~11,600 lines of Go across 52 files
-- All automated tests pass (9 packages)
+- v1.2 Phase 10: Protocol message types and node config — stable wire contract established
+- ~11,800 lines of Go across 56 files
+- All automated tests pass (10 packages including new `internal/protocol`)
 - 4 human verification items deferred (live Telegram bot testing)
 
 ## Requirements
