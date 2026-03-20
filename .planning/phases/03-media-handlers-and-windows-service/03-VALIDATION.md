@@ -1,10 +1,11 @@
 ---
 phase: 3
 slug: media-handlers-and-windows-service
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: compliant
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-03-20
+last_audited: 2026-03-20
 ---
 
 # Phase 3 — Validation Strategy
@@ -38,16 +39,16 @@ created: 2026-03-20
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 03-01-01 | 01 | 1 | MEDIA-01 | unit | `go test ./internal/handlers/... -run TestHandleVoice` | ❌ W0 | ⬜ pending |
-| 03-01-02 | 01 | 1 | MEDIA-01 | unit | `go test ./internal/handlers/... -run TestHandleVoice_NoAPIKey` | ❌ W0 | ⬜ pending |
-| 03-02-01 | 02 | 1 | MEDIA-02 | unit | `go test ./internal/handlers/... -run TestHandlePhoto_Single` | ❌ W0 | ⬜ pending |
-| 03-02-02 | 02 | 1 | MEDIA-03 | unit | `go test ./internal/handlers/... -run TestMediaGroupBuffer` | ❌ W0 | ⬜ pending |
-| 03-03-01 | 03 | 1 | MEDIA-04 | unit | `go test ./internal/handlers/... -run TestHandleDocument_PDF` | ❌ W0 | ⬜ pending |
-| 03-03-02 | 03 | 1 | MEDIA-04 | unit | `go test ./internal/handlers/... -run TestHandleDocument_PDFError` | ❌ W0 | ⬜ pending |
-| 03-03-03 | 03 | 1 | MEDIA-05 | unit | `go test ./internal/handlers/... -run TestHandleDocument_Text` | ❌ W0 | ⬜ pending |
-| 03-03-04 | 03 | 1 | MEDIA-05 | unit | `go test ./internal/handlers/... -run TestHandleDocument_Unsupported` | ❌ W0 | ⬜ pending |
-| 03-03-05 | 03 | 1 | MEDIA-05 | unit | `go test ./internal/handlers/... -run TestHandleDocument_TooBig` | ❌ W0 | ⬜ pending |
-| 03-04-01 | 04 | 2 | DEPLOY-02 | manual | review docs | N/A | ⬜ pending |
+| 03-01-01 | 01 | 1 | MEDIA-01 | unit | `go test ./internal/handlers/... -run TestHandleVoice` | ✅ | ✅ green |
+| 03-01-02 | 01 | 1 | MEDIA-01 | unit | `go test ./internal/handlers/... -run TestHandleVoice_NoAPIKey` | ✅ | ✅ green |
+| 03-02-01 | 02 | 1 | MEDIA-02 | unit | `go test ./internal/handlers/... -run TestHandlePhoto_Single` | ✅ | ✅ green |
+| 03-02-02 | 02 | 1 | MEDIA-03 | unit | `go test ./internal/handlers/... -run TestMediaGroupBuffer` | ✅ | ✅ green |
+| 03-03-01 | 03 | 1 | MEDIA-04 | unit | `go test ./internal/handlers/... -run TestHandleDocument_PDF` | ✅ | ✅ green |
+| 03-03-02 | 03 | 1 | MEDIA-04 | unit | `go test ./internal/handlers/... -run TestHandleDocument_PDFError` | ✅ | ✅ green |
+| 03-03-03 | 03 | 1 | MEDIA-05 | unit | `go test ./internal/handlers/... -run TestHandleDocument_Text` | ✅ | ✅ green |
+| 03-03-04 | 03 | 1 | MEDIA-05 | unit | `go test ./internal/handlers/... -run TestHandleDocument_Unsupported` | ✅ | ✅ green |
+| 03-03-05 | 03 | 1 | MEDIA-05 | unit | `go test ./internal/handlers/... -run TestHandleDocument_TooBig` | ✅ | ✅ green |
+| 03-04-01 | 04 | 2 | DEPLOY-02 | manual | review docs | N/A | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -55,10 +56,10 @@ created: 2026-03-20
 
 ## Wave 0 Requirements
 
-- [ ] `internal/handlers/voice_test.go` — stubs for MEDIA-01 (transcription + no-API-key)
-- [ ] `internal/handlers/photo_test.go` — stubs for MEDIA-02, MEDIA-03 (single + album)
-- [ ] `internal/handlers/document_test.go` — stubs for MEDIA-04, MEDIA-05 (PDF, text, unsupported, size)
-- [ ] `internal/handlers/media_group_test.go` — stubs for MediaGroupBuffer timer logic
+- [x] `internal/handlers/voice_test.go` — stubs for MEDIA-01 (transcription + no-API-key)
+- [x] `internal/handlers/photo_test.go` — stubs for MEDIA-02, MEDIA-03 (single + album)
+- [x] `internal/handlers/document_test.go` — stubs for MEDIA-04, MEDIA-05 (PDF, text, unsupported, size)
+- [x] `internal/handlers/media_group_test.go` — stubs for MediaGroupBuffer timer logic
 
 ---
 
@@ -74,11 +75,11 @@ created: 2026-03-20
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved (2026-03-20)
