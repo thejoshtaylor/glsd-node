@@ -29,11 +29,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Multi-Project Management
 
-- [ ] **PROJ-01**: Each Telegram channel maps to exactly one project (working directory)
+- [x] **PROJ-01**: Each Telegram channel maps to exactly one project (working directory)
 - [ ] **PROJ-02**: Each project has its own independent Claude CLI session running simultaneously
 - [ ] **PROJ-03**: When bot receives a message from an unassigned channel, it prompts user to link a project
-- [ ] **PROJ-04**: Project-channel mappings persist to JSON file and survive restarts
-- [ ] **PROJ-05**: User can reassign or unlink a channel from a project
+- [x] **PROJ-04**: Project-channel mappings persist to JSON file and survive restarts
+- [x] **PROJ-05**: User can reassign or unlink a channel from a project
 
 ### Authentication & Security
 
@@ -58,9 +58,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### GSD Integration
 
 - [ ] **GSD-01**: `/gsd` command presents all GSD operations as categorized inline keyboard menus
-- [ ] **GSD-02**: Bot extracts GSD slash commands from Claude responses and renders as tappable buttons
-- [ ] **GSD-03**: Bot extracts numbered options from Claude responses and renders as tappable buttons
-- [ ] **GSD-04**: Bot displays roadmap phase progress inline when showing GSD status
+- [x] **GSD-02**: Bot extracts GSD slash commands from Claude responses and renders as tappable buttons
+- [x] **GSD-03**: Bot extracts numbered options from Claude responses and renders as tappable buttons
+- [x] **GSD-04**: Bot displays roadmap phase progress inline when showing GSD status
 - [ ] **GSD-05**: ask_user MCP integration — Claude can present clarifying questions via inline keyboard
 
 ### Media Handling
@@ -129,11 +129,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SESS-06 | Phase 1 | Complete |
 | SESS-07 | Phase 1 | Complete |
 | SESS-08 | Phase 1 | Complete |
-| PROJ-01 | Phase 2 | Pending |
+| PROJ-01 | Phase 2 | Complete |
 | PROJ-02 | Phase 2 | Pending |
 | PROJ-03 | Phase 2 | Pending |
-| PROJ-04 | Phase 2 | Pending |
-| PROJ-05 | Phase 2 | Pending |
+| PROJ-04 | Phase 2 | Complete |
+| PROJ-05 | Phase 2 | Complete |
 | AUTH-01 | Phase 1 | Complete |
 | AUTH-02 | Phase 1 | Complete |
 | AUTH-03 | Phase 1 | Complete |
@@ -146,9 +146,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERS-02 | Phase 1 | Complete |
 | PERS-03 | Phase 1 | Complete |
 | GSD-01 | Phase 2 | Pending |
-| GSD-02 | Phase 2 | Pending |
-| GSD-03 | Phase 2 | Pending |
-| GSD-04 | Phase 2 | Pending |
+| GSD-02 | Phase 2 | Complete |
+| GSD-03 | Phase 2 | Complete |
+| GSD-04 | Phase 2 | Complete |
 | GSD-05 | Phase 2 | Pending |
 | MEDIA-01 | Phase 3 | Pending |
 | MEDIA-02 | Phase 3 | Pending |

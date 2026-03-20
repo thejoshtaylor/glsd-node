@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Phase 2 context gathered
-last_updated: "2026-03-20T01:56:49.132Z"
+stopped_at: Completed 02-01-PLAN.md (MappingStore + GSD pure functions)
+last_updated: "2026-03-19T03:19:00Z"
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 13
+  completed_plans: 10
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-19)
 
 **Core value:** Control Claude Code remotely from Telegram across multiple projects simultaneously, each in its own channel with its own Claude session.
-**Current focus:** Phase 01 — core-bot-infrastructure
+**Current focus:** Phase 02 — multi-project-and-gsd-integration
 
 ## Current Position
 
-Phase: 01 (core-bot-infrastructure) — EXECUTING
-Plan: 1 of 9
+Phase: 02 (multi-project-and-gsd-integration) — EXECUTING
+Plan: 2 of 4
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Plan: 1 of 9
 | Phase 01 P06 | 35 | 3 tasks | 8 files |
 | Phase 01 P08 | 12 | 1 tasks | 2 files |
 | Phase 01 P09 | 8 | 2 tasks | 2 files |
+| Phase 02 P01 | 5 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,13 @@ Phase 1, Plan 5 (formatting package):
 - [Phase 01]: Smoke test approved: end-to-end flow verified with real Telegram credentials — bot connects, streams Claude responses, and all commands work including session persistence via /resume
 - [Phase 01]: Delegated all five command handlers to real bothandlers implementations; registered callbackquery.All for callback routing
 
+Phase 2, Plan 1 (MappingStore + GSD pure functions):
+
+- [Phase 02-01]: MappingStore uses string-keyed JSON (mappingsFile struct) because JSON object keys must be strings — int64 keys serialized via strconv.FormatInt/ParseInt
+- [Phase 02-01]: ExtractLetteredOptions requires sequential letters (A→B) not merely 2+ items — prevents false positives from non-list uppercase content
+- [Phase 02-01]: BuildPhasePickerKeyboard silently skips "skipped" phases — they are not actionable
+- [Phase 02-01]: gsdOpIndex precomputed at package init for O(1) label lookup in ExtractGsdCommands
+
 ### Pending Todos
 
 None yet.
@@ -116,6 +124,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T01:56:49.126Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-multi-project-and-gsd-integration/02-CONTEXT.md
+Last session: 2026-03-19T03:19:00Z
+Stopped at: Completed 02-01-PLAN.md (MappingStore + GSD pure functions)
+Resume file: .planning/phases/02-multi-project-and-gsd-integration/02-02-PLAN.md

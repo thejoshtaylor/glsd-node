@@ -51,7 +51,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — MappingStore (channel-project JSON persistence) + GSD pure functions (operations table, regex extractors, roadmap parser)
+- [x] 02-01-PLAN.md — MappingStore (channel-project JSON persistence) + GSD pure functions (operations table, regex extractors, roadmap parser)
 - [ ] 02-02-PLAN.md — Multi-project HandleText, /project command, per-project WorkerConfig, workerStarted, restoreSessions
 - [ ] 02-03-PLAN.md — GSD /gsd command, callback routing extension, response button extraction, global API rate limiter, ask_user MCP
 - [ ] 02-04-PLAN.md — Integration test suite + human verification checkpoint
@@ -75,5 +75,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Bot Infrastructure | 8/8 | Complete   | 2026-03-20 |
-| 2. Multi-Project and GSD Integration | 0/4 | Not started | - |
+| 2. Multi-Project and GSD Integration | 1/4 | In Progress | - |
 | 3. Media Handlers and Windows Service | 0/TBD | Not started | - |
