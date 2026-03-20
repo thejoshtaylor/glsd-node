@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A Telegram bot that lets you control Claude Code from your phone via text, voice, photos, and documents. Built in Go with 11,257 LOC across 50 files. Supports multiple simultaneous projects, each linked to its own Telegram channel with independent Claude sessions. Includes full GSD workflow integration with interactive button menus. Deploys as a Windows Service.
+A Telegram bot that lets you control Claude Code from your phone via text, voice, photos, and documents. Built in Go with ~11,600 LOC across 52 files. Supports multiple simultaneous projects, each linked to its own Telegram channel with independent Claude sessions. Includes full GSD workflow integration with interactive button menus. Deploys as a Windows Service.
 
 ## Core Value
 
@@ -10,13 +10,13 @@ Control Claude Code remotely from Telegram across multiple projects simultaneous
 
 ## Current State
 
-**v1.0 shipped 2026-03-20** — Full Go rewrite complete.
+**v1.1 shipped 2026-03-20** — Bugfix release complete.
 
-- 7 phases, 24 plans, 44 requirements — all complete
-- 11,257 lines of Go across 50 files (49 .go files + main.go)
-- All automated tests pass (9 packages, 77+ handler tests)
-- 5 human verification items deferred (live bot testing)
-- 2 Nyquist VALIDATION.md files still in draft (Phases 5, 6)
+- v1.0: 7 phases, 24 plans — full Go rewrite shipped
+- v1.1: 2 phases, 2 plans — polling stability + channel auth
+- ~11,600 lines of Go across 52 files
+- All automated tests pass (9 packages)
+- 4 human verification items deferred (live Telegram bot testing)
 
 ## Requirements
 
@@ -42,22 +42,11 @@ Control Claude Code remotely from Telegram across multiple projects simultaneous
 - [x] GSD keyboard sessions persist for /resume — v1.0 Phase 5
 - [x] Cross-phase safety hardening (typing, audit, safety checks uniform) — v1.0 Phase 6
 
-### Active
+### Validated (v1.1)
 
 - [x] Long-polling getUpdates without context deadline exceeded errors — v1.1 Phase 8
 - [x] Channel auth via admin lookup — channels authorized if an allowed user is admin — v1.1 Phase 9
 - [x] Echo loop prevention — bot's own reflected channel posts and linked-channel forwards filtered — v1.1 Phase 9
-
-(See REQUIREMENTS.md for v1.1 requirements)
-
-## Current Milestone: v1.1 Bugfixes
-
-**Goal:** Fix auth failures in Telegram channels and resolve polling timeout errors for stable daily use.
-
-**Target features:**
-- Fix channel-type auth: messages in Telegram channels fail auth because EffectiveSender is nil/channel ID
-- Fix getUpdates polling timeout: HTTP client timeout shorter than long-poll duration causes context deadline exceeded
-- Any additional bugs surfaced during investigation
 
 ### Out of Scope
 
@@ -65,12 +54,13 @@ Control Claude Code remotely from Telegram across multiple projects simultaneous
 - SQLite or database storage — JSON files sufficient
 - Docker deployment — Windows Service is target platform
 - Shared Claude sessions — each project must be independent
-- Video/audio file transcription — deferred to v2 (MEDIA-06, MEDIA-07)
-- Archive file extraction — deferred to v2 (MEDIA-08)
+- Video/audio file transcription — deferred to future (MEDIA-06, MEDIA-07)
+- Archive file extraction — deferred to future (MEDIA-08)
+- Auth rejection suppression in public channels — deferred (AUTH-03)
 
 ## Context
 
-The Go rewrite is complete — a ground-up redesign from the original ~3,300 line TypeScript/Bun application. The Go version is idiomatically Go with goroutines for concurrency, gotgbot/v2 for Telegram, and zerolog for structured logging.
+The Go rewrite is complete — a ground-up redesign from the original ~3,300 line TypeScript/Bun application. The Go version is idiomatically Go with goroutines for concurrency, gotgbot/v2 for Telegram, and zerolog for structured logging. v1.1 added channel authorization via admin lookup and fixed polling timeouts.
 
 Tech stack: Go 1.23+, gotgbot/v2, zerolog, godotenv, golang.org/x/time
 External deps: claude CLI, pdftotext (poppler), OpenAI Whisper API, NSSM (Windows Service)
@@ -99,6 +89,8 @@ External deps: claude CLI, pdftotext (poppler), OpenAI Whisper API, NSSM (Window
 | Windows Service over Task Scheduler | Runs at boot without login, proper service management | ✓ Good — NSSM handles restarts |
 | NDJSON streaming over REST API | Matches claude CLI output format, real-time updates | ✓ Good — StatusCallback pattern |
 | Token bucket rate limiting | Per-channel, goroutine-safe, configurable | ✓ Good — golang.org/x/time/rate |
+| Admin lookup for channel auth | Zero config — channels auto-authorize if an allowed user is admin | ✓ Good — no channel IDs in .env needed |
+| 15-min admin cache TTL | Balance freshness vs API load for GetChatAdministrators | ✓ Good — sync.Map with inline expiry |
 
 ---
-*Last updated: 2026-03-20 after Phase 9 completion*
+*Last updated: 2026-03-20 after v1.1 milestone*

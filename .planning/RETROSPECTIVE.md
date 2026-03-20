@@ -48,6 +48,43 @@
 
 ---
 
+## Milestone: v1.1 — Bugfixes
+
+**Shipped:** 2026-03-20
+**Phases:** 2 | **Plans:** 2
+
+### What Was Built
+- Fixed polling timeout race: `RequestOpts.Timeout` (15s) gives HTTP layer 5s headroom over 10s long-poll window
+- Channel auth via admin lookup: `GetChatAdministrators` checks if any admin is in `AllowedUsers`, cached 15 minutes
+- Echo loop prevention: filters bot's own reflected posts and linked-channel auto-forwards before auth check
+
+### What Worked
+- Autonomous mode end-to-end: discuss → plan → execute → verify → audit → complete in one session
+- Smart discuss batch tables saved time vs sequential questioning
+- Research phase caught key gotgbot API detail (`IsChannelPost()` vs `From == nil`) that would have caused bugs
+- Single-plan phases executed fast (5-20 min per plan)
+
+### What Was Inefficient
+- Phase 8 was already complete on disk but ROADMAP.md wasn't updated — required manual checkbox fix at autonomous start
+- VALIDATION.md Nyquist sign-off not updated by executor — stayed in draft
+
+### Patterns Established
+- `ChannelAuthFn` type for injectable channel auth in middleware (same pattern as AuthChecker interface)
+- `sync.Map` + inline expiry for simple TTL caching without external deps
+- Additive auth branches: new auth paths add conditionals after existing checks, never restructure
+
+### Key Lessons
+1. Mark roadmap complete immediately during execute-phase, not after — avoids stale state for autonomous mode
+2. Admin lookup auth is superior to channel ID allowlists — zero operator config needed
+3. Echo filtering must run before all auth checks — cheapest early exit prevents wasted API calls
+
+### Cost Observations
+- Model mix: ~50% sonnet (research, verification, integration check), ~50% opus (planning, execution)
+- Sessions: 1 (full autonomous run)
+- Notable: Entire milestone completed in a single autonomous session
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -55,14 +92,18 @@
 | Milestone | Sessions | Phases | Key Change |
 |-----------|----------|--------|------------|
 | v1.0 | ~20 | 7 | First milestone — established GSD autonomous workflow |
+| v1.1 | 1 | 2 | Full autonomous end-to-end — discuss→plan→execute→verify→audit→complete |
 
 ### Cumulative Quality
 
 | Milestone | Tests | Coverage | Zero-Dep Additions |
 |-----------|-------|----------|-------------------|
 | v1.0 | 77+ | handler-level | 0 (all deps justified) |
+| v1.1 | 85+ | handler + security | 0 (sync.Map from stdlib) |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Audit early, verify immediately — deferred verification creates rework phases
 2. Convergence points in handler chains simplify cross-cutting concerns
+3. Additive auth patterns (new branch after existing check) prevent regressions
+4. Admin lookup > config-based allowlists when zero-config UX matters
