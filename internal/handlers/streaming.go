@@ -2,11 +2,14 @@
 package handlers
 
 import (
+	"context"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 
 	"github.com/user/gsd-tele-go/internal/claude"
 	"github.com/user/gsd-tele-go/internal/config"
@@ -25,22 +28,45 @@ type StreamingState struct {
 	bot    *gotgbot.Bot
 	chatID int64
 
-	mu           sync.Mutex
-	statusMsgID  int64                // ephemeral tool/thinking status message ID (0 if none)
-	textSegments map[int]*TextSegment // segment index -> Telegram message + accumulated text
-	lastEditTime time.Time
-	pendingText  string       // text buffered waiting for the 500ms throttle
-	pendingTimer *time.Timer  // fires flush when throttle expires
-	nextSegment  int          // index of the current (latest) text segment
+	mu            sync.Mutex
+	statusMsgID   int64                // ephemeral tool/thinking status message ID (0 if none)
+	textSegments  map[int]*TextSegment // segment index -> Telegram message + accumulated text
+	lastEditTime  time.Time
+	pendingText   string       // text buffered waiting for the 500ms throttle
+	pendingTimer  *time.Timer  // fires flush when throttle expires
+	nextSegment   int          // index of the current (latest) text segment
+	globalLimiter *rate.Limiter // optional; nil means no global limiting
 }
 
 // NewStreamingState creates a StreamingState for the given bot and chat.
-func NewStreamingState(bot *gotgbot.Bot, chatID int64) *StreamingState {
+// globalLimiter is optional — pass nil to disable global API rate limiting.
+func NewStreamingState(bot *gotgbot.Bot, chatID int64, globalLimiter *rate.Limiter) *StreamingState {
 	return &StreamingState{
-		bot:          bot,
-		chatID:       chatID,
-		textSegments: make(map[int]*TextSegment),
+		bot:           bot,
+		chatID:        chatID,
+		textSegments:  make(map[int]*TextSegment),
+		globalLimiter: globalLimiter,
 	}
+}
+
+// AccumulatedText returns the full concatenated text from all segments.
+// Called after streaming completes to extract response for button detection.
+func (ss *StreamingState) AccumulatedText() string {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if len(ss.textSegments) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	for i := 0; i <= ss.nextSegment; i++ {
+		seg, ok := ss.textSegments[i]
+		if ok {
+			sb.WriteString(seg.Text)
+		}
+	}
+	return sb.String()
 }
 
 // SendThinkingMessage sends a "Thinking..." placeholder message and returns its
@@ -196,6 +222,21 @@ func (ss *StreamingState) editOrSendSegment(segmentIdx int, text string) {
 	}
 }
 
+// waitForRateLimit waits on the global API rate limiter if set.
+// Uses a 5-second timeout context to avoid blocking indefinitely during shutdown.
+func (ss *StreamingState) waitForRateLimit() {
+	if ss.globalLimiter == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := ss.globalLimiter.Wait(ctx); err != nil {
+		// Rate limited during shutdown — drop this edit.
+		cancel()
+		return
+	}
+	cancel()
+}
+
 // sendOrEditWithFallback sends or edits a message with MarkdownV2 formatting,
 // falling back to plain text if Telegram rejects the MarkdownV2 parse.
 func (ss *StreamingState) sendOrEditWithFallback(segmentIdx int, text string) {
@@ -209,6 +250,9 @@ func (ss *StreamingState) sendOrEditWithFallback(segmentIdx int, text string) {
 	ss.mu.Unlock()
 
 	formatted := formatting.ConvertToMarkdownV2(text)
+
+	// Rate limit API calls if global limiter is set.
+	ss.waitForRateLimit()
 
 	if msgID == 0 {
 		// Send new message.
@@ -261,6 +305,9 @@ func (ss *StreamingState) updateStatusMessage(text string) {
 	ss.mu.Lock()
 	statusMsgID := ss.statusMsgID
 	ss.mu.Unlock()
+
+	// Rate limit API calls if global limiter is set.
+	ss.waitForRateLimit()
 
 	if statusMsgID == 0 {
 		msg, err := ss.bot.SendMessage(ss.chatID, text, &gotgbot.SendMessageOpts{

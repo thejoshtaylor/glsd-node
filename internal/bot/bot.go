@@ -11,6 +11,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 
 	"github.com/user/gsd-tele-go/internal/audit"
 	"github.com/user/gsd-tele-go/internal/config"
@@ -22,17 +23,18 @@ import (
 
 // Bot owns the Telegram bot lifecycle: polling, middleware, session management, and shutdown.
 type Bot struct {
-	bot          *gotgbot.Bot
-	updater      *ext.Updater
-	cfg          *config.Config
-	store        *session.SessionStore
-	persist      *session.PersistenceManager
-	rateLimiter  *security.ChannelRateLimiter
-	auditLog     *audit.Logger
-	cancelFunc   context.CancelFunc
-	wg           sync.WaitGroup // tracks active session worker goroutines
-	mappings     *project.MappingStore
-	awaitingPath *bothandlers.AwaitingPathState
+	bot              *gotgbot.Bot
+	updater          *ext.Updater
+	cfg              *config.Config
+	store            *session.SessionStore
+	persist          *session.PersistenceManager
+	rateLimiter      *security.ChannelRateLimiter
+	auditLog         *audit.Logger
+	cancelFunc       context.CancelFunc
+	wg               sync.WaitGroup // tracks active session worker goroutines
+	mappings         *project.MappingStore
+	awaitingPath     *bothandlers.AwaitingPathState
+	globalAPILimiter *rate.Limiter // global Telegram API rate limiter (25/sec, burst 5)
 }
 
 // New creates and initialises a Bot from the given Config.
@@ -68,15 +70,19 @@ func New(cfg *config.Config) (*Bot, error) {
 		log.Warn().Err(err).Msg("Failed to load mappings; starting with empty")
 	}
 
+	// Global API rate limiter: 25 edits/sec with burst of 5 (Telegram hard limit is ~30/sec).
+	globalAPILimiter := rate.NewLimiter(rate.Limit(25), 5)
+
 	b := &Bot{
-		bot:          tgBot,
-		cfg:          cfg,
-		store:        store,
-		persist:      persist,
-		rateLimiter:  rateLimiter,
-		auditLog:     auditLog,
-		mappings:     mappings,
-		awaitingPath: bothandlers.NewAwaitingPathState(),
+		bot:              tgBot,
+		cfg:              cfg,
+		store:            store,
+		persist:          persist,
+		rateLimiter:      rateLimiter,
+		auditLog:         auditLog,
+		mappings:         mappings,
+		awaitingPath:     bothandlers.NewAwaitingPathState(),
+		globalAPILimiter: globalAPILimiter,
 	}
 
 	log.Info().
@@ -173,6 +179,11 @@ func (b *Bot) Stop() {
 // register worker goroutines for graceful shutdown tracking.
 func (b *Bot) WaitGroup() *sync.WaitGroup {
 	return &b.wg
+}
+
+// GlobalAPILimiter returns the global Telegram API rate limiter.
+func (b *Bot) GlobalAPILimiter() *rate.Limiter {
+	return b.globalAPILimiter
 }
 
 // restoreSessions loads saved session history and recreates in-memory sessions
