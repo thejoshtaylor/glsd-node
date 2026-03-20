@@ -36,8 +36,8 @@ Requirements for the custom webapp milestone. Each maps to roadmap phases.
 
 ### Node Lifecycle
 
-- [ ] **NODE-01**: Node ID auto-derived from hardware identifiers (machine ID or hostname hash) — not user-configured
-- [ ] **NODE-02**: Config via `.env`: `SERVER_URL`, `SERVER_TOKEN`, `HEARTBEAT_INTERVAL_SECS`
+- [x] **NODE-01**: Node ID auto-derived from hardware identifiers (machine ID or hostname hash) — not user-configured
+- [x] **NODE-02**: Config via `.env`: `SERVER_URL`, `SERVER_TOKEN`, `HEARTBEAT_INTERVAL_SECS`
 - [ ] **NODE-03**: Graceful shutdown drains active streams, kills remaining processes, sends disconnect
 - [ ] **NODE-04**: Per-project rate limiting on incoming `run` commands using token bucket
 - [ ] **NODE-05**: Structured logging with `node_id`, `instance_id`, `project` context fields
@@ -102,8 +102,8 @@ Deferred to v1.2.x or later. Tracked but not in current roadmap.
 | INST-05 | Phase 13 | Pending |
 | INST-06 | Phase 13 | Pending |
 | INST-07 | Phase 13 | Pending |
-| NODE-01 | Phase 10 | Pending |
-| NODE-02 | Phase 10 | Pending |
+| NODE-01 | Phase 10 | Complete |
+| NODE-02 | Phase 10 | Complete |
 | NODE-03 | Phase 13 | Pending |
 | NODE-04 | Phase 13 | Pending |
 | NODE-05 | Phase 13 | Pending |

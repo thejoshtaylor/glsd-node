@@ -29,7 +29,7 @@ See [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md) for full phase deta
 
 **Milestone Goal:** Replace Telegram bot interface with a custom WebSocket-based communication protocol, transforming the bot into standalone node software that connects to a central server.
 
-- [ ] **Phase 10: Protocol Definitions and Config** - Define all wire message types and extend config with WebSocket env vars
+- [x] **Phase 10: Protocol Definitions and Config** - Define all wire message types and extend config with WebSocket env vars (completed 2026-03-20)
 - [ ] **Phase 11: WebSocket Connection Manager** - Build and validate outbound WebSocket client with reconnect and heartbeat
 - [ ] **Phase 12: Telegram Removal and Session Migration** - Delete Telegram layer and migrate session identity from channel IDs to project keys
 - [ ] **Phase 13: Dispatch, Instance Management, and Node Lifecycle** - Implement command dispatch, multi-instance management, and end-to-end node wiring
@@ -45,10 +45,10 @@ See [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md) for full phase deta
   1. `internal/protocol/messages.go` compiles with all inbound and outbound message struct definitions (`Envelope`, `execute`, `kill`, `status_request`, `node_register`, `stream_event`, `instance_started`, `instance_finished`, `instance_error`) and round-trip marshal/unmarshal tests pass
   2. `.env` accepts `SERVER_URL`, `SERVER_TOKEN`, `HEARTBEAT_INTERVAL_SECS` and the node auto-derives its ID from hardware identifiers without any user-set config field
   3. The registration frame struct includes a running-instance snapshot field, preventing session divergence after reconnect from day one
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 10-01-PLAN.md — Protocol message types and Envelope with round-trip tests
-- [ ] 10-02-PLAN.md — Node ID derivation and NodeConfig with env var parsing
+- [x] 10-02-PLAN.md — Node ID derivation and NodeConfig with env var parsing
 
 ### Phase 11: WebSocket Connection Manager
 **Goal**: A validated `ConnectionManager` that dials outbound, reconnects automatically, and serializes all writes through a single goroutine — the foundation every other phase depends on
@@ -104,7 +104,7 @@ Plans:
 | 1-7. v1.0 Phases | v1.0 | 24/24 | Complete | 2026-03-20 |
 | 8. Polling Stability | v1.1 | 1/1 | Complete | 2026-03-20 |
 | 9. Channel Auth | v1.1 | 1/1 | Complete | 2026-03-20 |
-| 10. Protocol Definitions and Config | v1.2 | 1/2 | In Progress|  |
+| 10. Protocol Definitions and Config | v1.2 | 2/2 | Complete   | 2026-03-20 |
 | 11. WebSocket Connection Manager | v1.2 | 0/? | Not started | - |
 | 12. Telegram Removal and Session Migration | v1.2 | 0/? | Not started | - |
 | 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 0/? | Not started | - |

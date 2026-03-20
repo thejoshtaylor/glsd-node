@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Custom Webapp
 status: unknown
-stopped_at: Completed 10-01-PLAN.md — protocol message types and Envelope
-last_updated: "2026-03-20T23:10:30.331Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-03-20T23:12:30.445Z"
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -40,6 +40,8 @@ Plan: 2 of 2
 - [Phase 10]: RunningInstances field on NodeRegister has no omitempty tag — guarantees [] not null when empty
 - [Phase 10]: Envelope.Payload is json.RawMessage — dispatch on Type before decoding avoids allocating unknown structs
 - [Phase 10]: protocol package uses stdlib only (encoding/json) — no external dependencies
+- [Phase 10-02]: machineid.ProtectedID used as primary node ID source, hostname sha256 fallback for containers/CI
+- [Phase 10-02]: NodeConfig separate from Config — no Telegram env vars required for WebSocket config
 
 ### Pending Todos
 
@@ -60,6 +62,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-20T23:10:30.326Z
-Stopped at: Completed 10-01-PLAN.md — protocol message types and Envelope
+Last session: 2026-03-20T23:12:30.438Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
