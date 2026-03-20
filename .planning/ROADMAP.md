@@ -65,7 +65,13 @@ Plans:
   2. User sends a photo or an album of photos and Claude's response addresses the image content
   3. User attaches a PDF or text file and Claude's response addresses the document content
   4. Bot installs as a Windows Service via NSSM, starts automatically at boot without a terminal window, and resolves claude/pdftotext from explicit environment variables rather than PATH
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Config additions (PdfToTextPath) + shared helpers (downloadToTemp, transcribeVoice, extractPDF) + MediaGroupBuffer
+- [ ] 03-02-PLAN.md — Voice handler (Whisper transcription) + Photo handler (single + album buffering)
+- [ ] 03-03-PLAN.md — Document handler (PDF extraction via pdftotext + text file reading)
+- [ ] 03-04-PLAN.md — Bot dispatcher wiring + NSSM Windows Service documentation + human verification
 
 ## Progress
 
@@ -76,4 +82,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. Core Bot Infrastructure | 8/8 | Complete   | 2026-03-20 |
 | 2. Multi-Project and GSD Integration | 4/4 | Complete   | 2026-03-20 |
-| 3. Media Handlers and Windows Service | 0/TBD | Not started | - |
+| 3. Media Handlers and Windows Service | 0/4 | Not started | - |
