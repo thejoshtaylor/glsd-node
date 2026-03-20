@@ -17,6 +17,7 @@ import (
 	"github.com/user/gsd-tele-go/internal/claude"
 	"github.com/user/gsd-tele-go/internal/config"
 	"github.com/user/gsd-tele-go/internal/project"
+	"github.com/user/gsd-tele-go/internal/security"
 	"github.com/user/gsd-tele-go/internal/session"
 )
 
@@ -119,6 +120,18 @@ func HandleVoice(
 		ev := audit.NewEvent("voice_message", userID, chatID)
 		ev.Message = truncateTranscript(transcript, 100)
 		_ = auditLog.Log(ev)
+	}
+
+	// Command safety check on transcript before sending to Claude.
+	safe, blockedPattern := security.CheckCommandSafety(transcript, config.BlockedPatterns)
+	if !safe {
+		log.Warn().
+			Int64("chat_id", chatID).
+			Int64("user_id", userID).
+			Str("pattern", blockedPattern).
+			Msg("Blocked voice transcript due to safety pattern")
+		_, err := tgBot.SendMessage(chatID, "Voice transcript blocked for safety: "+blockedPattern, nil)
+		return err
 	}
 
 	// --- Enqueue to Claude session (same pattern as HandleText) ---

@@ -332,7 +332,7 @@ func HandleGsd(b *gotgbot.Bot, ctx *ext.Context, mappings *project.MappingStore,
 		if !strings.HasPrefix(directCmd, "/") {
 			directCmd = "/" + directCmd
 		}
-		return enqueueGsdCommand(b, chatID, directCmd, store, mappings, cfg, persist, wg, globalLimiter)
+		return enqueueGsdCommand(b, chatID, directCmd, store, mappings, cfg, persist, wg, globalLimiter, nil, 0)
 	}
 
 	// Show GSD keyboard.
