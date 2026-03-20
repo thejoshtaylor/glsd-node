@@ -9,22 +9,22 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Core Infrastructure
 
-- [ ] **CORE-01**: Bot connects to Telegram via long polling and receives messages from multiple channels
+- [x] **CORE-01**: Bot connects to Telegram via long polling and receives messages from multiple channels
 - [x] **CORE-02**: Bot loads configuration from environment variables and/or config file
-- [ ] **CORE-03**: Bot sends typing indicators while processing requests
-- [ ] **CORE-04**: Bot reports errors back to the user with truncated error messages
+- [x] **CORE-03**: Bot sends typing indicators while processing requests
+- [x] **CORE-04**: Bot reports errors back to the user with truncated error messages
 - [x] **CORE-05**: Bot rate-limits requests per channel using token bucket algorithm
 - [x] **CORE-06**: Bot writes append-only audit log (timestamp, user, channel, action, message excerpt)
 
 ### Claude Session Management
 
 - [x] **SESS-01**: Bot spawns and manages Claude CLI as a subprocess with streaming JSON output
-- [ ] **SESS-02**: Bot streams Claude responses with throttled edit-in-place message updates
+- [x] **SESS-02**: Bot streams Claude responses with throttled edit-in-place message updates
 - [x] **SESS-03**: Bot displays tool execution status with emoji indicators during streaming
 - [x] **SESS-04**: User can send text messages that are routed to the channel's Claude session
 - [x] **SESS-05**: User can interrupt a running query by sending a message prefixed with `!`
-- [ ] **SESS-06**: Bot shows context window usage as a progress bar in status messages
-- [ ] **SESS-07**: Bot tracks and displays token usage (input/output/cache) in /status
+- [x] **SESS-06**: Bot shows context window usage as a progress bar in status messages
+- [x] **SESS-07**: Bot tracks and displays token usage (input/output/cache) in /status
 - [x] **SESS-08**: Bot properly kills Windows process trees (taskkill /T /F) when stopping sessions
 
 ### Multi-Project Management
@@ -76,7 +76,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **DEPLOY-01**: Bot compiles to a single Go binary (.exe) for Windows
 - [ ] **DEPLOY-02**: Bot installs as a Windows Service (runs at boot, no terminal window)
 - [x] **DEPLOY-03**: Bot resolves external tool paths (claude, pdftotext) explicitly at startup, not via PATH lookup
-- [ ] **DEPLOY-04**: Bot supports graceful shutdown — drains active sessions before stopping
+- [x] **DEPLOY-04**: Bot supports graceful shutdown — drains active sessions before stopping
 
 ## v2 Requirements
 
@@ -115,19 +115,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORE-01 | Phase 1 | Pending |
+| CORE-01 | Phase 1 | Complete |
 | CORE-02 | Phase 1 | Complete |
-| CORE-03 | Phase 1 | Pending |
-| CORE-04 | Phase 1 | Pending |
+| CORE-03 | Phase 1 | Complete |
+| CORE-04 | Phase 1 | Complete |
 | CORE-05 | Phase 1 | Complete |
 | CORE-06 | Phase 1 | Complete |
 | SESS-01 | Phase 1 | Complete |
-| SESS-02 | Phase 1 | Pending |
+| SESS-02 | Phase 1 | Complete |
 | SESS-03 | Phase 1 | Complete |
 | SESS-04 | Phase 1 | Complete |
 | SESS-05 | Phase 1 | Complete |
-| SESS-06 | Phase 1 | Pending |
-| SESS-07 | Phase 1 | Pending |
+| SESS-06 | Phase 1 | Complete |
+| SESS-07 | Phase 1 | Complete |
 | SESS-08 | Phase 1 | Complete |
 | PROJ-01 | Phase 2 | Pending |
 | PROJ-02 | Phase 2 | Pending |
@@ -158,7 +158,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEPLOY-01 | Phase 1 | Pending |
 | DEPLOY-02 | Phase 3 | Pending |
 | DEPLOY-03 | Phase 1 | Complete |
-| DEPLOY-04 | Phase 1 | Pending |
+| DEPLOY-04 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 44 total
