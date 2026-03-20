@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: unknown
 stopped_at: Phase 3 context gathered
-last_updated: "2026-03-20T03:17:52.891Z"
+last_updated: "2026-03-20T03:47:45Z"
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 17
+  completed_plans: 14
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-19)
 
 **Core value:** Control Claude Code remotely from Telegram across multiple projects simultaneously, each in its own channel with its own Claude session.
-**Current focus:** Phase 02 — multi-project-and-gsd-integration
+**Current focus:** Phase 03 — media-handlers-and-windows-service
 
 ## Current Position
 
-Phase: 02 (multi-project-and-gsd-integration) — EXECUTING
-Plan: 3 of 4
+Phase: 03 (media-handlers-and-windows-service) — EXECUTING
+Plan: 2 of 4
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Plan: 3 of 4
 | Phase 02 P02 | 6 | 2 tasks | 7 files |
 | Phase 02 P03 | 9 | 2 tasks | 7 files |
 | Phase 02 P04 | 5 | 2 tasks | 0 files |
+| Phase 03 P01 | 7 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,10 @@ Phase 2, Plan 1 (MappingStore + GSD pure functions):
 - [Phase 02]: [Phase 02-03]: waitForRateLimit() uses 5s timeout context before each Telegram API call — drops edit on timeout (shutdown safety, not error)
 - [Phase 02]: [Phase 02-03]: HandleGsd accepts wg param for API consistency but ignores it — enqueueGsdCommand manages its own goroutine lifecycle for callbacks
 - [Phase 02]: No integration issues found — Plans 01-03 compiled and passed all tests cleanly on first run
+- [Phase 03-01]: transcribeVoiceURL/downloadFromURL as testable internal helpers — public functions delegate to them; tests inject mock HTTP server URL without live Telegram/OpenAI
+- [Phase 03-01]: MediaGroupBuffer.Add uses chatID/userID int64 not *ext.Context — decouples media_group.go from gotgbot, enables straightforward unit testing
+- [Phase 03-01]: extractPDF partial extraction — on non-zero exit code with non-empty stdout, return partial output as success (handles encrypted/partial PDFs per Pitfall 4)
+- [Phase 03-01]: First non-empty caption wins in MediaGroupBuffer — empty-string captions from items without captions do not block real captions from later items
 
 ### Pending Todos
 
@@ -134,6 +139,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T03:17:52.885Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-media-handlers-and-windows-service/03-CONTEXT.md
+Last session: 2026-03-20T03:47:45Z
+Stopped at: Completed Phase 03 Plan 01 (03-01-PLAN.md)
+Resume file: .planning/phases/03-media-handlers-and-windows-service/03-02-PLAN.md

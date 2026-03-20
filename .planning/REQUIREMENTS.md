@@ -67,7 +67,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **MEDIA-01**: User can send voice messages; bot transcribes via OpenAI Whisper and processes as text
 - [ ] **MEDIA-02**: User can send photos; bot forwards to Claude for visual analysis
-- [ ] **MEDIA-03**: Bot buffers photo albums (media groups) with a timeout before sending as a batch
+- [x] **MEDIA-03**: Bot buffers photo albums (media groups) with a timeout before sending as a batch
 - [ ] **MEDIA-04**: User can send PDF documents; bot extracts text via pdftotext and sends to Claude
 - [ ] **MEDIA-05**: User can send text/code files as documents; bot reads content and sends to Claude
 
@@ -152,7 +152,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GSD-05 | Phase 2 | Complete |
 | MEDIA-01 | Phase 3 | Pending |
 | MEDIA-02 | Phase 3 | Pending |
-| MEDIA-03 | Phase 3 | Pending |
+| MEDIA-03 | Phase 3 | Complete |
 | MEDIA-04 | Phase 3 | Pending |
 | MEDIA-05 | Phase 3 | Pending |
 | DEPLOY-01 | Phase 1 | Complete |
