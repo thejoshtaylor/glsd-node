@@ -1,3 +1,12 @@
+# Build artifacts (Go)
+*.exe
+gsd-tele-go
+gsd-tele-go.exe
+
+# Runtime data
+data/session-history.json
+data/channel-projects.json
+
 # dependencies (bun install)
 node_modules
 
@@ -39,3 +48,7 @@ mcp-config.ts
 # Finder (MacOS) folder config
 .DS_Store
 /claude-bot-standalone
+
+# Go IDE
+.vscode/
+Thumbs.db
