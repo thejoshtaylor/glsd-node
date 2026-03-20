@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 01-05-PLAN.md (formatting package)
-last_updated: "2026-03-19T00:00:00Z"
+stopped_at: Completed 01-02-PLAN.md (Claude CLI subprocess layer)
+last_updated: "2026-03-20T00:21:36Z"
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 8
-  completed_plans: 2
+  completed_plans: 4
 ---
 
 # Project State
@@ -24,21 +24,21 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 ## Current Position
 
 Phase: 01 (core-bot-infrastructure) — EXECUTING
-Plan: 6 of 8
+Plan: 5 of 8 (01-01, 01-02, 01-03, 01-05 complete; 01-04, 01-06, 01-07, 01-08 pending)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 2
-- Average duration: 20min
-- Total execution time: 40min
+- Total plans completed: 4
+- Average duration: 17min
+- Total execution time: 72min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 2 | 40min | 20min |
+| 01 | 4 | 72min | 18min |
 
 **Recent Trend:**
 
@@ -58,6 +58,20 @@ Key decisions affecting Phase 1:
 - JSON persistence over SQLite (no schema migration, sufficient for use case)
 - Per-channel auth over global allowlist (scales with multi-channel model)
 - Windows Service deployment target (runs at boot without login)
+
+Phase 1, Plan 1 (config and audit packages):
+
+- Config Load() returns error instead of panicking — cleaner for service restart handling
+- FilteredEnv() strips CLAUDECODE= from subprocess env — prevents nested session error (Pitfall 8)
+- Audit logger uses json.Encoder.Encode() for atomic JSON line writes under sync.Mutex
+- Go 1.26.1 installed via winget on Windows 11 (was missing from PATH)
+
+Phase 1, Plan 2 (Claude CLI subprocess):
+
+- io.ReadCloser fields on Process struct for stdout/stderr (StdoutPipe/StderrPipe returns separate readers)
+- Test fixtures use temp files + type/cat (cmd.exe echo corrupts JSON special characters)
+- ContextPercent computes (inputTokens + outputTokens) * 100 / contextWindow (no cache tokens)
+- ErrContextLimit sentinel from Stream() allows errors.Is discrimination from other errors
 
 Phase 1, Plan 3 (security subsystem):
 
@@ -80,13 +94,12 @@ None yet.
 ### Blockers/Concerns
 
 - Phase 1: Six infrastructure pitfalls must be addressed before any feature work (process tree kill, concurrent map mutex, goroutine leak from pipe cleanup, JSON atomic writes, context limit detection, PATH blindness). Research SUMMARY.md has full details.
-- Phase 1 BLOCKER: Go toolchain not installed on this machine. All go test verifications cannot run until Go is installed and `go mod tidy` is run to generate go.sum.
-- Phase 1 NOTE: Plans 01-01 and 01-02 have not been executed. go.mod was created by plan 01-03 as a deviation, but config and audit packages are missing. These should be executed before or alongside 01-04.
+- Phase 1 NOTE: Go 1.26.1 installed via winget (01-01 session). Plans 01-01, 01-02, 01-03, 01-05 complete. Plans 01-04, 01-06, 01-07, 01-08 pending.
 - Phase 2: Telegram rate limit flood risk scales with simultaneous streaming sessions — global API rate limiter required.
 - Phase 3: NSSM environment variable configuration for user-installed tools needs hands-on verification on target machine.
 
 ## Session Continuity
 
-Last session: 2026-03-19T00:00:00Z
-Stopped at: Completed 01-05-PLAN.md (formatting package)
-Resume file: .planning/phases/01-core-bot-infrastructure/01-06-PLAN.md
+Last session: 2026-03-20T00:21:36Z
+Stopped at: Completed 01-01-PLAN.md + 01-02-PLAN.md
+Resume file: .planning/phases/01-core-bot-infrastructure/01-04-PLAN.md

@@ -10,7 +10,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Core Infrastructure
 
 - [ ] **CORE-01**: Bot connects to Telegram via long polling and receives messages from multiple channels
-- [ ] **CORE-02**: Bot loads configuration from environment variables and/or config file
+- [x] **CORE-02**: Bot loads configuration from environment variables and/or config file
 - [ ] **CORE-03**: Bot sends typing indicators while processing requests
 - [ ] **CORE-04**: Bot reports errors back to the user with truncated error messages
 - [x] **CORE-05**: Bot rate-limits requests per channel using token bucket algorithm
@@ -18,14 +18,14 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Claude Session Management
 
-- [ ] **SESS-01**: Bot spawns and manages Claude CLI as a subprocess with streaming JSON output
+- [x] **SESS-01**: Bot spawns and manages Claude CLI as a subprocess with streaming JSON output
 - [ ] **SESS-02**: Bot streams Claude responses with throttled edit-in-place message updates
 - [x] **SESS-03**: Bot displays tool execution status with emoji indicators during streaming
 - [ ] **SESS-04**: User can send text messages that are routed to the channel's Claude session
 - [ ] **SESS-05**: User can interrupt a running query by sending a message prefixed with `!`
 - [ ] **SESS-06**: Bot shows context window usage as a progress bar in status messages
 - [ ] **SESS-07**: Bot tracks and displays token usage (input/output/cache) in /status
-- [ ] **SESS-08**: Bot properly kills Windows process trees (taskkill /T /F) when stopping sessions
+- [x] **SESS-08**: Bot properly kills Windows process trees (taskkill /T /F) when stopping sessions
 
 ### Multi-Project Management
 
@@ -121,14 +121,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-04 | Phase 1 | Pending |
 | CORE-05 | Phase 1 | Complete |
 | CORE-06 | Phase 1 | Pending |
-| SESS-01 | Phase 1 | Pending |
+| SESS-01 | Phase 1 | Complete |
 | SESS-02 | Phase 1 | Pending |
 | SESS-03 | Phase 1 | Complete |
 | SESS-04 | Phase 1 | Pending |
 | SESS-05 | Phase 1 | Pending |
 | SESS-06 | Phase 1 | Pending |
 | SESS-07 | Phase 1 | Pending |
-| SESS-08 | Phase 1 | Pending |
+| SESS-08 | Phase 1 | Complete |
 | PROJ-01 | Phase 2 | Pending |
 | PROJ-02 | Phase 2 | Pending |
 | PROJ-03 | Phase 2 | Pending |
