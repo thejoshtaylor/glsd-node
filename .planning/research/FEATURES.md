@@ -1,328 +1,216 @@
 # Feature Research
 
-**Domain:** Telegram bot bugfix — channel auth and polling timeout
+**Domain:** Node-to-server WebSocket agent — CLI orchestration node software
 **Researched:** 2026-03-20
-**Confidence:** HIGH
+**Confidence:** HIGH (architecture patterns, existing code reuse); MEDIUM (protocol specifics)
 
 ## Scope Note
 
-This document covers v1.1 research only. The full feature landscape for v1.0 is preserved as context
-below the v1.1 section. v1.1 is a targeted bugfix milestone: two specific failures observed in
-production, one root-cause investigation into auth, one into polling timeouts.
+This document covers v1.2 research. The v1.1 and v1.0 feature landscape is archived in
+`.planning/milestones/`. v1.2 is a milestone pivot: remove the Telegram bot interface entirely
+and replace it with an outbound WebSocket connection to a central server.
 
 ---
 
-## v1.1 Bugfix Features
-
-### Bug 1: Channel Auth Failure — EffectiveSender is nil for Channel Posts
-
-**What breaks:** Messages sent in a Telegram channel fail auth because
-`ctx.EffectiveSender` is nil when the update comes from a channel post
-(as opposed to a group message or DM). The auth middleware calls
-`ctx.EffectiveSender.Id()` without a nil check, causing a nil pointer dereference
-or returning `userID = 0`, which is never in the allowed-users list.
-
-**Root cause — Telegram Bot API behavior by chat type:**
-
-The Telegram Bot API distinguishes three update types for "messages":
-
-| Update Field | Chat Type | `from` Field | `sender_chat` Field |
-|---|---|---|---|
-| `Update.Message` | DM | Populated with real User | nil |
-| `Update.Message` | Group / Supergroup | Populated with real User | nil (or Chat for anon admin) |
-| `Update.ChannelPost` | Channel | **nil** (absent per API spec) | Populated with the Channel chat |
-
-The `from` field is explicitly optional in the Telegram Bot API: "Sender of the message; may be empty for messages sent to channels." This has been the documented behavior since Bot API was introduced and has not changed.
-
-**gotgbot v2 behavior:**
-
-gotgbot's `Sender` struct merges `from` (User) and `sender_chat` (Chat) fields. The `Id()` method
-prefers `Chat.Id` when present: "When a message is being sent by a chat/channel, Telegram usually
-populates the User field with dummy values. For this reason, we prefer to return the Chat.Id if it
-is available."
-
-`EffectiveSender` is populated by `NewContext()` based on which update fields are present. For a
-`ChannelPost` update, `from` is nil, so the resulting `Sender.User` is nil. If `sender_chat` is
-also absent (pure channel post with no forwarding), `EffectiveSender` may be nil entirely or may
-have a non-nil `Sender` with a nil `User` and a non-nil `Chat`.
-
-**Critical gotgbot behavior — handlers.NewMessage does NOT match ChannelPost by default:**
-
-`handlers.NewMessage` only fires for `Update.Message` updates unless `SetAllowChannel(true)` is
-called on the handler. Channel posts arrive as `Update.ChannelPost`, which is a separate field.
-
-This means: the text, voice, photo, document handlers registered with `handlers.NewMessage` do NOT
-currently receive channel post updates unless `AllowChannel` is set. The auth middleware runs on
-ALL updates (group -2, `CheckUpdate` returns true), so it will run on channel post updates, but the
-message handlers after it will not fire for those updates.
-
-The auth failure scenario is therefore:
-
-1. A channel post arrives as `Update.ChannelPost`.
-2. The auth middleware runs (group -2, catches all updates).
-3. `ctx.EffectiveSender` is nil or has `User = nil`.
-4. `ctx.EffectiveSender.Id()` returns 0 (if Sender is non-nil but User is nil) or panics (if Sender is nil).
-5. `IsAuthorized(0, channelID, allowedUsers)` returns false — auth rejected.
-6. The message handlers in group 0 would not have fired anyway (no `AllowChannel`).
-
-**Two-part fix required:**
-
-1. Harden auth middleware: when `EffectiveSender` is nil OR `EffectiveSender.Id()` returns 0,
-   fall back to `EffectiveChat.Id` for the auth decision. For a single-owner bot where the
-   channel IS the auth unit, the channel ID is the correct identity to check.
-
-2. Decide channel post handling policy: either enable `AllowChannel` on message handlers so the
-   bot processes channel posts (making the channel a two-way command interface), OR keep channel
-   posts as non-interactive (owner posts to channel are not routed to Claude). This is a product
-   decision, not just a bug fix.
-
-**Recommended policy:** The bot's design uses channels as project workspaces where the owner
-sends messages TO the bot. Channel posts in a pure Telegram channel flow FROM the bot TO
-subscribers — this is the opposite direction. The auth failure is happening because the bot is
-added as an admin to a channel it also posts into (needed for sending responses), so its own
-outbound posts generate `ChannelPost` updates that the auth middleware intercepts. The fix is
-to make the auth middleware pass (or skip) updates where the sender is the bot itself, or to
-filter out `ChannelPost` updates at the middleware level since the bot does not need to receive
-channel posts as commands.
-
-**Table stakes vs differentiator classification:**
-
-| Feature | Classification | Rationale |
-|---|---|---|
-| Auth does not crash on channel post updates | TABLE STAKES | Any nil pointer dereference is a crash bug, not a feature gap |
-| Auth passes updates where sender is the bot itself | TABLE STAKES | Bot's own messages must not trigger auth rejection |
-| Explicit ChannelPost filter (skip or route) | TABLE STAKES | Undefined behavior on channel post updates must be resolved |
-| Accept commands from channel posts | DIFFERENTIATOR | Would allow channel-as-command-interface pattern; not the v1.0 design |
-
----
-
-### Bug 2: Long-Poll Timeout Error — HTTP Client Timeout Shorter Than getUpdates Timeout
-
-**What breaks:** The bot logs `context deadline exceeded` errors during normal operation. These
-appear periodically even with no user activity. The bot may temporarily stop receiving updates
-until the next successful poll cycle.
-
-**Root cause — timeout relationship in long polling:**
-
-Long polling works by sending a `getUpdates` request with a `timeout` parameter (in seconds).
-Telegram holds the HTTP connection open for up to that many seconds, then responds with either
-an empty array (no updates) or the available updates. This is by design — the connection is
-supposed to stay open.
-
-The relationship that must hold:
-
-```
-HTTP client timeout > getUpdates timeout parameter
-```
-
-If the HTTP client timeout fires before the getUpdates timeout expires, the client closes the
-connection before Telegram has finished its server-side wait. This generates a
-`context deadline exceeded` error from the HTTP layer.
-
-gotgbot v2's `updater.go` documents this explicitly in `PollingOpts`:
-
-> "Using a non-0 'GetUpdatesOpts.Timeout' value. This is how 'long' telegram will hold the
-> long-polling call while waiting for new messages... it is recommended you set your
-> PollingOpts.Timeout value to be slightly bigger (eg, +1)" than the HTTP client timeout.
-
-The wording is slightly confusing (it says set PollingOpts.Timeout bigger, but context indicates
-it means the HTTP client request timeout should be set to polling timeout + buffer). The intent
-is clear: HTTP request timeout = getUpdates timeout + margin.
-
-**Current configuration in bot.go:**
-
-```go
-b.updater.StartPolling(b.bot, &ext.PollingOpts{
-    DropPendingUpdates: false,
-    GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
-        Timeout: 10,
-    },
-})
-```
-
-The `GetUpdatesOpts.Timeout` is 10 seconds. No `RequestOpts` with a longer `Timeout` is passed.
-gotgbot uses `http.DefaultClient` if no custom client is configured. `http.DefaultClient` has no
-timeout (`Timeout: 0`), which means no timeout — this should NOT cause deadline exceeded errors
-by itself.
-
-The actual error source is likely `context.Context` propagation: the `StartPolling` call receives
-the `ctx` from `b.Start()`, which is derived from the parent context. If that context has a
-deadline or is cancelled, all in-flight HTTP requests will fail with `context deadline exceeded`.
-
-**Correct fix:** Pass a `RequestOpts` with `Timeout` set to the polling interval + a generous
-buffer (at least 5 seconds). The standard recommended pattern is:
-
-```go
-pollingTimeout := 30  // seconds Telegram holds the connection
-b.updater.StartPolling(b.bot, &ext.PollingOpts{
-    GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
-        Timeout: pollingTimeout,
-        RequestOpts: &gotgbot.RequestOpts{
-            Timeout: time.Duration(pollingTimeout+5) * time.Second,
-        },
-    },
-})
-```
-
-A `getUpdates` timeout of 30 seconds with an HTTP timeout of 35 seconds gives Telegram the full
-window to respond while ensuring the HTTP layer closes stale connections if Telegram is unreachable.
-The current value of 10 seconds for `GetUpdatesOpts.Timeout` is on the low end; 30 seconds is
-the community standard for stable long-polling bots.
-
-**Table stakes vs differentiator classification:**
-
-| Feature | Classification | Rationale |
-|---|---|---|
-| No spurious context deadline exceeded errors during polling | TABLE STAKES | Periodic errors in production = unstable service |
-| HTTP client timeout set correctly relative to polling timeout | TABLE STAKES | Fundamental long-poll configuration requirement |
-| Polling timeout increased from 10s to 30s | TABLE STAKES | 10s generates 6x more getUpdates requests per minute; 30s is standard |
-| Polling timeout configurable via env var | DIFFERENTIATOR | Nice-to-have for tuning; not blocking |
-
----
-
-## Chat Type Behavior Reference
-
-This table documents expected Telegram Bot API behavior per chat type for bot-received updates.
-Use this when debugging auth, sender extraction, or handler routing.
-
-| Scenario | Update Field | `from` (User) | `sender_chat` (Chat) | `EffectiveSender.Id()` |
-|---|---|---|---|---|
-| User DM to bot | `Message` | Populated | nil | User ID |
-| User in group/supergroup | `Message` | Populated | nil | User ID |
-| Anonymous admin in group | `Message` | Fake user (1087968824) | Group chat | Chat ID |
-| Channel linked to discussion group (forwarded post) | `Message` | Fake user (777000) | Channel chat | Chat ID |
-| Admin posting to channel (bot as admin) | `ChannelPost` | nil | nil (channel is EffectiveChat) | nil or 0 |
-| Bot's own outbound message (bot posts to channel) | `ChannelPost` | nil | nil | nil or 0 |
-| Callback query (inline keyboard button) | `CallbackQuery` | Populated | nil | User ID |
-
-**Key rule:** In a `ChannelPost` update, the `from` field is absent per Telegram API spec.
-`EffectiveSender` will be nil or have `Id() == 0`. Do not call `EffectiveSender.Id()` without
-a nil guard on ChannelPost updates.
-
----
-
-## Anti-Features for v1.1
-
-| Anti-Feature | Why Tempting | Why Wrong | Correct Approach |
-|---|---|---|---|
-| Whitelist the channel ID instead of user ID in IsAuthorized | Would "fix" auth by treating channel as user | Conflates two different auth models; hides the real issue that ChannelPost updates should be filtered, not authed | Filter ChannelPost updates before auth; only auth updates that can have real senders |
-| Increase getUpdates timeout to 60+ seconds | Longer poll = fewer requests | Telegram server enforces a maximum; the Telegram Bot API docs recommend positive values but 60s is the upper practical limit; very long timeouts complicate connection health monitoring | Use 30s with a 35s HTTP timeout — standard and documented |
-| Set http.Client.Timeout globally to a short value | Seems like good hygiene | Short global timeout kills long-poll requests which are intended to wait | Set per-request timeout in RequestOpts for getUpdates only; leave other requests at default or a shorter value |
-| Disable the auth middleware for ChannelPost updates via AllowChannel=false on handlers | Stops the handler from running, which avoids the crash | Middleware still runs; nil dereference still happens; AllowChannel controls handler dispatch, not middleware execution | Fix the middleware nil guard; separately decide on ChannelPost handling policy |
-
----
-
-## Feature Dependencies (v1.1 changes)
-
-```
-[Auth middleware nil guard for EffectiveSender]
-    └──must precede──> [ChannelPost routing decision]
-                           (nil guard makes the middleware safe regardless of routing choice)
-
-[Polling timeout increase to 30s]
-    └──requires──> [RequestOpts.Timeout set to 35s]
-                   (always set both together; setting only the Telegram timeout causes errors)
-```
-
----
-
-## v1.0 Feature Landscape (retained for context)
+## v1.2 Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = product feels incomplete.
+Features the server operator expects to exist. Missing these makes the node undeployable or
+unreliable in the target architecture.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Text message routing to Claude | Core interaction — without this the bot is useless | LOW | Synchronous text-in, response-out |
-| Streaming response with live updates | Any AI bot doing >2s responses needs live feedback; users abandon silent bots | MEDIUM | Edit-in-place pattern: create message, throttle edits at ~500ms, final edit on complete |
-| Session persistence across restarts | Users expect conversation continuity; losing context on restart is a regression | MEDIUM | JSON file with session ID; resume on startup |
-| /start, /new, /stop, /status commands | Standard Telegram bot conventions; users try these first | LOW | `/start` = info + status; `/new` = clear session; `/stop` = abort running query |
-| Auth gate on all handlers | Security baseline — unauthorized users must be rejected, not silently ignored | LOW | Per-channel membership check in the Go version; check on every handler |
-| Error reporting back to user | Silent failures erode trust; users need to know when something went wrong | LOW | Error text in channel, truncated to 200 chars |
-| Typing indicator while processing | Standard UX signal that the bot is working | LOW | Send chat action "typing" on a goroutine; stop on response complete |
-| Rate limiting per channel | Prevents accidental or intentional abuse of Claude API | MEDIUM | Token bucket per channel ID; configurable burst and refill |
-| Audit logging | Required for debugging; expected in any production tool | LOW | Append-only log: timestamp, user, action, first 100 chars of message |
-| /resume — restore previous session | Claude context is expensive; losing work context is painful | MEDIUM | List saved sessions with inline keyboard; select to resume |
+| Outbound WebSocket connection | No firewall changes — node dials server; server does not dial node | MEDIUM | TLS (`wss://`) required in production; gorilla/websocket v1.5.1 or coder/websocket are both viable |
+| Node registration on connect | Server must know node identity before dispatching commands | LOW | First frame after handshake: send `node_id`, platform, project list, version; block command handling until ACK received |
+| Heartbeat / ping-pong keepalive | Idle connections silently drop at NAT routers and load balancers | LOW | Send ping every 30s; server expects pong within 10s; server closes connection after 90s of silence; standard interval per distributed systems literature |
+| Automatic reconnection with exponential backoff | Transient network failures are inevitable; the node must self-heal without operator intervention | MEDIUM | Start at 500ms delay, double each attempt, cap at 30s, add jitter to prevent thundering herd on server restart; re-register on each reconnect |
+| Online/offline status detection by server | Server must know which nodes are reachable before dispatching commands | LOW | Inferred from connection state and missed heartbeat threshold; send explicit `disconnect` frame on clean shutdown |
+| Command dispatch from server to node | The entire purpose of the system — server sends commands, node executes them | MEDIUM | JSON frames with `type`, `command_id`, `project`, `payload`; node sends ACK then streams results |
+| Spawn Claude CLI subprocess on command | Core node action | LOW | `internal/claude/process.go` is reused directly; `NewProcess()` and `Stream()` already handle all subprocess and NDJSON concerns |
+| Stream Claude output back to server | Server needs live updates, not only the final result | MEDIUM | Forward each NDJSON event as a WebSocket frame wrapped in an envelope: `{type: "chunk", instance_id: "...", event: {...}}`; send in the same goroutine that reads from the `StatusCallback` |
+| Instance lifecycle events | Server must track when a Claude instance starts, finishes, or errors | LOW | Events: `instance_started`, `instance_chunk`, `instance_finished`, `instance_error`; each includes `instance_id` and `project` |
+| Multiple simultaneous Claude instances per project | Parallel GSD execution in the same working directory | HIGH | Per-instance goroutine; `map[instanceID]*claude.Process` guarded by mutex; single writer goroutine for all WebSocket output — concurrent `conn.WriteMessage` calls are not safe |
+| Instance ID assignment | Server must address specific running instances for kill, query, or correlation | LOW | UUID generated at spawn time; included in every outgoing frame envelope |
+| Graceful shutdown | Windows Service stop must not orphan Claude subprocesses | MEDIUM | On SIGTERM/service stop: stop accepting new commands, wait for in-flight streams to finish (with timeout), kill remaining processes with `taskkill /T /F`, send disconnect frame, exit |
+| Config via env file | Standard deployment pattern; operators manage `.env` files | LOW | Extend existing `internal/config/config.go` pattern; add `NODE_ID`, `SERVER_URL`, `SERVER_TOKEN`, `HEARTBEAT_INTERVAL_SECS`; remove Telegram/OpenAI vars |
+| Remove Telegram dependencies entirely | Stated milestone goal; node software must not carry Telegram coupling | MEDIUM | Remove `internal/bot/`, remove `gotgbot/v2` import, remove Telegram-specific handlers; Claude process management is retained |
+| Structured logging with instance context | Operational visibility without console access | LOW | zerolog already in use; extend with `node_id`, `instance_id`, `project` fields on all log entries related to instance lifecycle |
+| Audit logging for received commands | Security requirement — record what the server instructed the node to do | LOW | `internal/audit/log.go` is reused; extend log entries with `source: websocket`, `command_type`, `command_id` |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set the product apart. Not required, but valuable.
+Features that make this node system genuinely useful beyond the bare minimum.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Multi-project with one channel per project | Core value proposition of this rewrite — competitors use a single chat or `/repo` switching | HIGH | One bot, N channels, each channel maintains independent Claude session; channel ID is the project key |
-| Dynamic project-channel assignment | Unrecognized channel prompts user to link a project path — zero-config onboarding for new projects | HIGH | On first message from unknown channel: show directory browser inline keyboard; save mapping to JSON |
-| GSD workflow integration via inline keyboard menus | The entire GSD command set accessible from a phone without typing slash commands | HIGH | 19 GSD operations mapped to inline keyboard; roadmap context shown with phase progress; contextual next-step buttons extracted from Claude's response |
-| Contextual action buttons after responses | Claude's response may contain GSD commands or numbered options — extract them and render as tappable buttons | HIGH | Parse response for `/gsd:*` patterns and numbered lists; buildActionKeyboard() renders them as inline keyboard |
-| Context window progress bar | Users can see how close they are to hitting the context limit before it fails | LOW | Parse `context_percent` from Claude CLI stream-json output; render as block bar |
-| Query interrupt with `!` prefix | Interrupting a long-running query to redirect is essential for phone-based coding | MEDIUM | Detect `!` prefix on text handler; stop running process, clear stop flag, send new message |
-| Voice message transcription | Mobile-first: typing long prompts is painful; voice is faster | MEDIUM | Download OGG from Telegram; send to OpenAI Whisper API; pipe transcript to text handler |
-| Photo analysis with album buffering | Take a screenshot of an error and send it for analysis | MEDIUM | Buffer media group messages for 1s timeout to collect album; pass image URLs to Claude |
-| PDF document processing | Send spec docs, PRDs, or error reports directly to the bot | MEDIUM | `pdftotext` CLI dependency; extract text, pass as message content |
-| Per-project independent Claude sessions | Work on two projects simultaneously without context bleed | HIGH | One `ClaudeSession` (or equivalent) per channel, goroutine-safe |
-| Windows Service deployment via NSSM | Runs at boot on Windows dev machines without a terminal window; proper service lifecycle | MEDIUM | NSSM wraps the Go binary; install script sets recovery actions; logs to file |
-| Roadmap parsing and display in /gsd | Shows phase progress inline — Phase X/N done, next phase name — without leaving Telegram | MEDIUM | Parse `.planning/ROADMAP.md` checkboxes; display as context in /gsd message |
-| ask_user MCP integration | Claude can ask clarifying questions via inline keyboard buttons during a session | HIGH | Watch for ask-user JSON files in temp dir; render options as inline keyboard; write answer back to file |
-| Token usage reporting in /status | Shows input/output/cache tokens from last query — useful for cost awareness | LOW | Parse `usage` from stream-json; store on session object; display in /status |
+| Per-project session persistence and resume | Claude sessions survive node restarts; expensive context is not lost | LOW | Already built: session ID captured from result events in `process.go`; persisted to JSON; reloaded on reconnect; pass `--resume SESSION_ID` on next spawn |
+| Token and context usage forwarding | Server UI can display context % and token counts per instance | LOW | Already captured: `p.LastContextPercent()`, `p.LastUsage()` from `process.go`; include in `instance_finished` event |
+| Per-project working directory isolation | Multiple projects on one node cannot interfere with each other | LOW | Already built in `internal/project/mapping.go`; `cmd.Dir` is set per-project at spawn time |
+| Rate limiting on incoming commands | Prevent runaway Claude usage from a misconfigured or compromised server | LOW | Token bucket (`golang.org/x/time/rate`) already in `internal/security`; apply per-project to incoming `run` commands |
+| Kill command support | Server can terminate a specific running instance — essential for long-running GSD phases | LOW | Lookup instance by ID in the map; call `p.Kill()`; send `instance_finished` with error reason |
+| Streaming chunk throttle (deduplicated) | Avoid flooding the WebSocket with high-frequency NDJSON events from Claude | LOW | Apply a 100ms minimum interval between forwarded chunk frames per instance; batch text content, send tool events immediately — mirrors existing `StreamingState` throttle logic |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Native Telegram streaming (Bot API) | Would give real live character-by-character streaming | Telegram charges 15% commission on all in-bot Star purchases when enabled; creates revenue dependency on Telegram; only useful for monetized bots | Edit-in-place pattern: throttled message edits simulate streaming without enabling native streaming |
-| Database (SQLite/Postgres) for state | Feels more "production" | Adds dependency, schema migrations, backup complexity; JSON files are sufficient for single-user or small team use — and explicitly out of scope per PROJECT.md | JSON file persistence: project-channel mappings, session state, audit log |
-| Shared Claude sessions across channels | Reduces Claude session overhead | Destroys the multi-project isolation guarantee — context from Project A leaks into Project B | Strict one-session-per-channel-ID mapping |
-| Global user allowlist | Familiar pattern from single-channel bots | Doesn't scale with multi-channel model; who is "allowed" changes per project/channel | Per-channel auth: if you're in the channel, you have access; no global list to maintain |
-| Webhook mode for Telegram updates | Lower latency than polling; common recommendation | Adds HTTPS endpoint requirement, certificate management, port exposure on Windows; for a local dev tool, long polling is perfectly adequate | Long polling: simpler, no network config, works behind NAT and firewalls |
-| Docker deployment | Reproducible environment | Explicit out-of-scope in PROJECT.md; adds complexity for a Windows Service target; Go produces a single static binary anyway | Native Go binary + NSSM; binary compiles to a single `.exe` |
-| Multi-user per channel | Multiple developers sharing one channel | Blurs accountability in audit log; creates conflicting session state (one user stops a query while another is waiting for results) | Per-channel auth accepts any channel member, but sessions are owned by the channel, not the user — first message wins |
-| Inline message editing for streaming | Looks slicker — message updates in-place | Telegram rate-limits edits to ~2/s per chat; rapid edits trigger 429 errors and back-off; need throttle logic regardless | Throttle edits at 500ms minimum interval; batch content updates |
-| Auto-commit or git push from bot | Convenience for one-command deploys | High risk of pushing broken code or exposing credentials; creates feedback loop without review | Use Claude's existing git tools inside the session; require explicit intent per commit |
-| Conversation history search | Useful reference for past decisions | Telegram already provides message search in channels; duplicating it adds storage and complexity | Rely on Telegram's native channel search; audit log covers structured event history |
+| Inbound listening port on node | "Simpler" bidirectional — server calls node directly | Breaks the fundamental NAT traversal requirement; requires static IP and firewall rule per node; negates the whole reason for outbound-only design | Outbound WebSocket is the correct pattern: server pushes commands over the established connection; the connection direction and command direction are independent |
+| Server-side message persistence and replay queue | "Reliable delivery" — buffer commands when node is offline | Queued commands become stale: a buffered "start GSD phase 2" command issued 10 minutes ago when the node was offline may be wrong to execute on reconnect | Design server to not dispatch commands to offline nodes; node reports live project state on reconnect so server operator can reissue intentionally |
+| Binary framing (protobuf, MessagePack) | Smaller payloads, faster serialization | Negligible benefit at this scale (one developer, local network latency); adds schema compilation step and makes log inspection harder; NDJSON is already the Claude CLI format | JSON text frames throughout; log any frame at DEBUG level and it is human-readable |
+| Shared Claude sessions across projects | "Efficiency" — one Claude process for multiple projects | Validated out of scope in v1.0: Claude sessions are directory-scoped; mixing projects causes wrong working directory for tool calls and context bleed | One session per project, always — this is a validated key decision |
+| HTTP REST fallback transport | "Reliability" — if WebSocket fails, fall back to polling | Doubles the protocol surface area; creates ambiguity about which transport is authoritative; complicates connection state reasoning | Exponential backoff reconnection handles transient WebSocket failures cleanly; no second transport needed |
+| Auto-discovery / mDNS / gossip protocol | "Zero config" — nodes find the server automatically | Unnecessary complexity for a single-server deployment; mDNS does not cross subnets; gossip protocols add significant implementation surface | Static `SERVER_URL` in env; nodes register to one known server URL; explicit config is simpler and auditable |
+| Node-side web dashboard | "Visibility" without the server | The server is the management plane by design; a local dashboard on the node duplicates that responsibility and adds an HTTP server dependency | All visibility flows through the server WebSocket connection; the node is headless by design |
+| Webhook or push registration (node tells server its IP) | Allows server to re-dial the node if connection drops | Reintroduces inbound port requirement and static IP assumption; breaks NAT traversal | The node is responsible for maintaining the connection; it re-connects automatically on drop |
 
-## Feature Dependencies (v1.0)
+## Feature Dependencies
 
 ```
-[Per-channel auth]
-    └──required by──> [Multi-project channel mapping]
-                          └──required by──> [Independent Claude sessions per channel]
-                                                └──required by──> [GSD workflow integration]
+[Outbound WebSocket connection]
+    └──enables──> [Node registration on connect]
+                      └──enables──> [Command dispatch from server]
+                                        └──enables──> [Spawn Claude CLI subprocess]
+                                                          └──enables──> [Stream Claude output to server]
+                                                                            └──enables──> [Instance lifecycle events]
 
-[Streaming response with live updates]
-    └──required by──> [Contextual action buttons after responses]
-                          └──enhances──> [GSD workflow integration]
+[Heartbeat / ping-pong]
+    └──enables──> [Online/offline status detection]
+    └──requires──> [Outbound WebSocket connection]
 
-[Session persistence]
-    └──required by──> [/resume command]
+[Automatic reconnection]
+    └──requires──> [Outbound WebSocket connection]
+    └──must trigger──> [Node registration on connect] (re-register after each reconnect)
 
-[Voice transcription]
-    └──depends on──> [OpenAI Whisper API key config]
+[Multiple simultaneous instances]
+    └──requires──> [Instance ID assignment] (envelope routing)
+    └──requires──> [Single writer goroutine] (WebSocket concurrency safety)
+    └──requires──> [Spawn Claude CLI subprocess]
 
-[PDF processing]
-    └──depends on──> [pdftotext CLI on PATH]
+[Kill command]
+    └──requires──> [Instance ID assignment] (to identify which instance to kill)
+    └──requires──> [Multiple simultaneous instances] (map of running instances)
 
-[ask_user MCP integration]
-    └──depends on──> [MCP server configuration]
-    └──depends on──> [Streaming response callback system]
+[Graceful shutdown]
+    └──requires──> [Kill command] (to terminate remaining instances)
+    └──requires──> [Instance lifecycle events] (drain before exit)
 
-[Roadmap parsing in /gsd]
-    └──depends on──> [Multi-project channel mapping] (need to know working dir)
+[Per-project session persistence]  (already built)
+    └──enhances──> [Spawn Claude CLI subprocess] (pass --resume SESSION_ID)
 
-[Contextual action buttons]
-    └──depends on──> [Response text parsing (GSD command extraction)]
-    └──conflicts──> [Native Telegram streaming] (streaming API owns the message lifecycle)
+[Remove Telegram dependencies]
+    └──conflicts with──> [internal/bot/, internal/handlers/streaming.go] (delete, not modify)
+    └──preserves──> [internal/claude/, internal/project/, internal/security/, internal/audit/]
 ```
+
+### Dependency Notes
+
+- **Command dispatch requires registration ACK:** The node must not process any `run` command before the server acknowledges the registration frame. Buffer and discard commands received before ACK.
+- **Streaming requires single writer goroutine:** Multiple goroutines (one per Claude instance) must not write to the WebSocket connection concurrently. All outbound frames must be funneled through a single `chan []byte` with a dedicated writer goroutine. This is a correctness requirement, not an optimization.
+- **Reconnect always re-registers:** The server treats each new WebSocket connection as a fresh node until registration is received. The node must re-send its registration frame after every reconnect, including project list and current instance state.
+- **Kill command is optional in MVP but enables graceful project state management:** Without it, a long-running Claude instance can only be stopped by restarting the node service. Include it in P1 because it is low complexity and high operational value.
+
+## MVP Definition
+
+### Launch With (v1.2)
+
+Minimum viable node that can replace the Telegram bot interface end-to-end.
+
+- [ ] Outbound WebSocket connection (`wss://SERVER_URL`) with TLS — fundamental transport
+- [ ] Node registration frame on connect: `node_id`, platform, project list, software version
+- [ ] Heartbeat every 30s with pong timeout enforcement — connection health
+- [ ] Automatic reconnection with exponential backoff (500ms to 30s, jitter) — self-healing
+- [ ] Single writer goroutine for all outbound WebSocket frames — concurrency correctness
+- [ ] Command dispatch: receive `run` command, parse project + prompt, spawn Claude CLI, stream output back
+- [ ] Instance ID (UUID) assigned at spawn, included in every outgoing envelope
+- [ ] Instance lifecycle events: `instance_started`, `instance_chunk`, `instance_finished`, `instance_error`
+- [ ] Multiple simultaneous Claude instances per project — concurrent goroutines, shared instance map
+- [ ] Kill command: terminate specific instance by ID
+- [ ] Graceful shutdown: drain active streams, kill remaining processes, send `disconnect` frame, exit
+- [ ] Config via `.env`: `NODE_ID`, `SERVER_URL`, `SERVER_TOKEN`, `HEARTBEAT_INTERVAL_SECS`
+- [ ] Remove `internal/bot/`, remove `gotgbot/v2` dependency, remove Telegram-specific code
+
+### Add After Validation (v1.2.x)
+
+Features to add once the node-server link is working end-to-end in production.
+
+- [ ] Status query command — server asks node for list of running instances and their state (trigger: server UI needs real-time dashboard)
+- [ ] Token and context usage forwarded in `instance_finished` events (trigger: server UI displays cost/context data)
+- [ ] Rate limiting on incoming `run` commands per project (trigger: observed runaway usage or rogue server sends)
+- [ ] Streaming chunk throttle — 100ms minimum interval per instance (trigger: observed WebSocket flood from high-verbosity Claude runs)
+
+### Future Consideration (v2+)
+
+Features to defer until the server is built and basic node operation is validated.
+
+- [ ] TLS certificate pinning — pin the server cert for stronger MITM protection (defer: bearer token auth is sufficient for v1; pinning adds deployment friction)
+- [ ] Command timeout enforcement on node — kill Claude if it runs beyond N minutes (defer: server can track wall time and issue a kill command; simpler than node-side timeout)
+- [ ] Metrics endpoint — Prometheus-compatible process stats: active instances, bytes forwarded, reconnect count (defer: operational need emerges post-deployment)
+- [ ] Multiple server connections — node reports to two servers simultaneously for HA failover (defer: single-server model is the whole deployment; adds significant state complexity)
+- [ ] Compressed WebSocket frames — `permessage-deflate` for high-volume NDJSON streaming (defer: local network latency dominates; compression benefit is marginal)
+
+## Feature Prioritization Matrix
+
+| Feature | User Value | Implementation Cost | Priority |
+|---------|------------|---------------------|----------|
+| Outbound WebSocket connection | HIGH | MEDIUM | P1 |
+| Node registration on connect | HIGH | LOW | P1 |
+| Heartbeat / keepalive | HIGH | LOW | P1 |
+| Automatic reconnection | HIGH | MEDIUM | P1 |
+| Single writer goroutine | HIGH | LOW | P1 — correctness, not optional |
+| Command dispatch + Claude spawn | HIGH | MEDIUM | P1 |
+| Stream Claude output to server | HIGH | MEDIUM | P1 |
+| Instance ID assignment | HIGH | LOW | P1 |
+| Instance lifecycle events | HIGH | LOW | P1 |
+| Multiple simultaneous instances | HIGH | HIGH | P1 — stated milestone goal |
+| Kill command | HIGH | LOW | P1 — low cost, high operational value |
+| Graceful shutdown | HIGH | MEDIUM | P1 |
+| Remove Telegram dependencies | HIGH | MEDIUM | P1 — stated milestone goal |
+| Config via env extension | HIGH | LOW | P1 |
+| Status query command | MEDIUM | LOW | P2 |
+| Token usage forwarding | LOW | LOW | P2 |
+| Rate limiting on commands | MEDIUM | LOW | P2 |
+| Streaming chunk throttle | LOW | LOW | P2 |
+| TLS certificate pinning | LOW | MEDIUM | P3 |
+| Command timeout on node | MEDIUM | MEDIUM | P3 |
+| Metrics endpoint | LOW | MEDIUM | P3 |
+
+**Priority key:**
+- P1: Must have for v1.2 launch
+- P2: Should have, add in v1.2.x after validation
+- P3: Future consideration
+
+## Existing Code Reuse Map
+
+v1.2 transforms the bot into headless node software. The Claude CLI management stack is
+preserved entirely. Only the Telegram interface layer is removed.
+
+| Existing Module | Reuse in v1.2 | What Changes |
+|-----------------|---------------|--------------|
+| `internal/claude/process.go` | Full reuse — `NewProcess`, `Stream`, `Kill`, `SessionID`, `LastUsage` | None — this is the node's core value; untouched |
+| `internal/claude/events.go` | Full reuse — `ClaudeEvent`, `AssistantMsg`, `UsageData` | None |
+| `internal/project/mapping.go` | Full reuse — project name to directory mapping | Remove Telegram channel ID association; projects are keyed by name/slug, not channel ID |
+| `internal/config/config.go` | Pattern reuse — env parsing with validation | Remove Telegram/OpenAI vars; add `NODE_ID`, `SERVER_URL`, `SERVER_TOKEN`, `HEARTBEAT_INTERVAL_SECS` |
+| `internal/security/` rate limiter | Full reuse — token bucket per project | Apply to incoming WebSocket commands instead of Telegram messages |
+| `internal/audit/log.go` | Full reuse — structured audit trail | Extend log entry type with `source: websocket`, `command_type`, `command_id` |
+| `internal/handlers/streaming.go` | Concept reuse — `StatusCallback` pattern | Replace Telegram message edit calls with WebSocket frame writes; `StreamingState` becomes `InstanceStream` |
+| `internal/bot/` | Delete entirely | Telegram dispatcher, middleware, bot setup — gone |
+| `internal/handlers/` (Telegram handlers) | Delete or gut | `command.go`, `text.go`, `voice.go`, `photo.go`, `document.go`, `callback.go` — gone; only `streaming.go` concept survives in new form |
+| `internal/formatting/` | Remove or defer | Telegram MarkdownV2 conversion is not needed; plain text forwarding of NDJSON is sufficient |
 
 ## Sources
 
-- [Telegram Bot API — Message object](https://core.telegram.org/bots/api#message): `from` field documented as "may be empty for messages sent to channels"; `sender_chat` field present for anonymous admin and channel-forwarded messages. HIGH confidence.
-- [gotgbot v2 sender.go](https://github.com/PaulSonOfLars/gotgbot/blob/v2/sender.go): `Sender.Id()` prefers `Chat.Id` over `User.Id` for channel/anonymous senders; `IsChannelPost()` checks Chat type and ID match. HIGH confidence.
-- [gotgbot v2 ext/handlers/message.go](https://pkg.go.dev/github.com/PaulSonOfLars/gotgbot/v2/ext/handlers): `SetAllowChannel(true)` required for handler to match `ChannelPost` updates; default is false. HIGH confidence.
-- [gotgbot v2 ext/updater.go](https://github.com/PaulSonOfLars/gotgbot/blob/v2/ext/updater.go): `PollingOpts` comments recommend HTTP request timeout = getUpdates timeout + buffer. HIGH confidence.
-- [pyTelegramBotAPI issue #2810](https://github.com/python-telegram-bot/python-telegram-bot/issues/2810): Anonymous admin user ID 777000 and 1087968824 sentinel values documented in community. MEDIUM confidence.
-- [Long Polling — Telegram.Bot .NET guide](https://telegrambots.github.io/book/3/updates/polling.html): HTTP client timeout must exceed getUpdates timeout parameter. MEDIUM confidence.
+- [Heartbeats in Distributed Systems — Martin Fowler Patterns of Distributed Systems](https://martinfowler.com/articles/patterns-of-distributed-systems/heartbeat.html) — HIGH confidence
+- [Understanding the Heartbeat Pattern in Distributed Systems](https://medium.com/@a.mousavi/understanding-the-heartbeat-pattern-in-distributed-systems-5d2264bbfda6) — MEDIUM confidence
+- [Go WebSocket Server Guide: coder/websocket vs gorilla](https://websocket.org/guides/languages/go/) — HIGH confidence
+- [WebSocket Reconnection: State Sync and Recovery Guide](https://websocket.org/guides/reconnection/) — HIGH confidence
+- [WebSocket Architecture Best Practices — Ably](https://ably.com/topic/websocket-architecture-best-practices) — MEDIUM confidence
+- [Go Concurrency Patterns: Pipelines and cancellation](https://go.dev/blog/pipelines) — HIGH confidence (official Go blog)
+- [Best Practices for Multi-Agent Workflows in Go (2026)](https://dasroot.net/posts/2026/03/best-practices-multi-agent-workflows-go/) — MEDIUM confidence
+- [gowscl: Robust WebSocket client with auto-reconnection and exponential backoff](https://github.com/evdnx/gowscl) — MEDIUM confidence (reference implementation)
+- Existing codebase: `internal/claude/process.go`, `internal/handlers/streaming.go` — HIGH confidence (direct inspection)
+- `.planning/PROJECT.md` requirements and key decisions — HIGH confidence (authoritative project context)
 
 ---
-*Feature research for: Go Telegram Bot with multi-project Claude Code integration*
-*Researched: 2026-03-20 (v1.1 bugfix update)*
+*Feature research for: GSD Node v1.2 — WebSocket node software replacing Telegram bot*
+*Researched: 2026-03-20*

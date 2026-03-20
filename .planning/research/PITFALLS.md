@@ -1,575 +1,444 @@
 # Pitfalls Research
 
-**Domain:** Go Telegram bot with Claude CLI subprocess management, multi-project sessions, Windows Service deployment
-**Researched:** 2026-03-20 (v1.1 additions); 2026-03-19 (v1.0 original)
-**Confidence:** HIGH (codebase read directly; gotgbot source and official Telegram API docs consulted)
+**Domain:** Go WebSocket node — multiple Claude CLI subprocesses, custom protocol, Telegram removal
+**Researched:** 2026-03-20 (v1.2 milestone)
+**Confidence:** HIGH (codebase read directly; Go WebSocket library docs and community issues consulted)
 
 ---
 
-## v1.1 Milestone Pitfalls — Channel Auth and HTTP Timeout Bugfixes
+## v1.2 Milestone Pitfalls — WebSocket Node, Multi-Instance Subprocess, Telegram Removal
 
-These pitfalls are specific to the v1.1 milestone: fixing channel-type auth failures and getUpdates polling timeout errors in the existing Go/gotgbot codebase.
+These pitfalls are specific to the v1.2 milestone: replacing the Telegram bot layer with a custom WebSocket client that manages multiple concurrent Claude CLI subprocesses per project directory.
 
 ---
 
-### Pitfall V1.1-1: Auth Passes Zero userID for Channel Posts
+## Critical Pitfalls
+
+### Pitfall WS-1: Reconnection Storm — No Backoff, No Jitter
 
 **What goes wrong:**
-Channel posts arrive as `channel_post` update type. Telegram does not populate the `from` field for these updates — it is nil per the official Bot API spec ("Sender of the message; may be empty for messages sent to channels"). In the current middleware (`internal/bot/middleware.go`), when `ctx.EffectiveSender` is non-nil but its underlying `User` field is nil (because the sender is a channel, not a user), `ctx.EffectiveSender.Id()` returns the channel's chat ID — a large negative number (e.g. `-1001234567890`). This value is not in `cfg.AllowedUsers`, so the bot rejects every message sent by the channel itself.
-
-The current `IsAuthorized` (`security/validate.go`) compares `userID` against `allowedUsers []int64`. For a channel post, `userID` is the channel chat ID, not a human user ID. No channel chat ID is in the human user allowlist, so auth always fails.
-
-Separately, some update types can have `EffectiveSender == nil`. The middleware guards this with `if ctx.EffectiveSender != nil`, so no nil-pointer panic occurs — but `userID` silently becomes `0`, which is also not in any allowlist, causing a silent reject.
+The node loses its WebSocket connection and immediately retries. If the server restarts (e.g., deploy, crash), every node reconnects at the exact same moment, creating a thundering-herd that can crash the server before it finishes starting. Even for a single node, tight retry loops without backoff can consume CPU and produce thousands of log lines per minute, masking real error causes.
 
 **Why it happens:**
-The auth design was user-ID-based: "is this human in the allowlist?" Channel posts have no human sender — they come from the channel entity itself. When gotgbot constructs `EffectiveSender` from a channel post, `Sender.User` is nil and `Sender.Chat` is populated. The `Id()` method returns `Sender.Chat.Id` in this case, which is the channel's own ID rather than a user ID from the allowlist. The mismatch is structural: user auth checks do not apply to channel sender types.
+The naive pattern is `for { conn, err = dial(); if err != nil { continue } }`. Developers add a `time.Sleep(1 * time.Second)` and consider it handled. That sleep is fixed — it provides no jitter and does not increase with consecutive failures.
 
 **How to avoid:**
-Change the auth strategy for channel posts. The correct check is: "is this message coming from a channel that this bot is configured to serve?" — i.e., check `EffectiveChat.Id` against the configured project channel IDs in `MappingStore`, rather than checking the sender user ID against `allowedUsers`.
+Use exponential backoff with jitter: start at 500ms, double on each failure, cap at 30 seconds, add `±25%` random jitter to spread reconnection times. Reset the delay to the minimum immediately after a successful connection is established (not after a successful handshake message — after confirmed success from the server). In Go:
 
-Concrete implementation pattern:
 ```go
-// In IsAuthorized or in the middleware directly:
-if sender.IsUser() {
-    // Human sender path — existing logic unchanged
-    return isUserInAllowlist(sender.User.Id, allowedUsers)
-} else {
-    // Channel/chat sender path — authorize by channel ID in MappingStore
-    _, ok := mappingStore.Get(channelID)
-    return ok
+delay := 500 * time.Millisecond
+const maxDelay = 30 * time.Second
+for {
+    conn, err := dialWebSocket(ctx, url)
+    if err == nil {
+        delay = 500 * time.Millisecond  // reset on success
+        runLoop(conn)
+    }
+    jitter := time.Duration(rand.Int63n(int64(delay / 4)))
+    time.Sleep(delay + jitter)
+    if delay < maxDelay {
+        delay *= 2
+        if delay > maxDelay { delay = maxDelay }
+    }
 }
 ```
 
-The two auth paths must be independent branches. Do not replace the existing `allowedUsers` check — only add the channel branch.
-
 **Warning signs:**
-- Log entries showing `auth_rejected` events for messages you sent yourself from the channel.
-- All messages in a Telegram channel result in "You're not authorized" replies from the bot.
-- Audit log shows `userID` values that are large negative numbers (channel IDs look like `-1001234567890`).
-- Bot responds correctly in private chat with a human user but rejects all channel messages.
+Log lines with "dial: connection refused" appearing at exactly 1-second intervals. CPU spike on the node when server is down. Server logs showing burst of simultaneous connections from all nodes at restart.
 
 **Phase to address:**
-v1.1 Phase 1 — channel auth fix. This is the primary goal of the milestone.
+WebSocket client phase (first phase of v1.2). This is the foundation — get it right before adding protocol logic.
 
 ---
 
-### Pitfall V1.1-2: HTTP Client Timeout Shorter Than Long-Poll Duration
+### Pitfall WS-2: Concurrent Write Panic on gorilla/websocket
 
 **What goes wrong:**
-The bot's `Start()` method sets `GetUpdatesOpts.Timeout: 10`, telling Telegram to hold the long-polling connection open for up to 10 seconds while waiting for updates. However, the gotgbot HTTP client's hardcoded default request timeout is **5 seconds** (`DefaultTimeout = time.Second * 5` in gotgbot's `request.go`). Because 5 < 10, the HTTP client closes the connection before Telegram's 10-second hold completes, producing `context deadline exceeded` errors on every polling cycle when no messages arrive within 5 seconds.
-
-The error is non-fatal — gotgbot's updater retries automatically — but it generates continuous log noise, causes unnecessary TCP reconnects (one every ~5 seconds during idle), and can slow down `Stop()` because the updater waits for in-flight requests to resolve.
+Multiple goroutines write to the same `*websocket.Conn` simultaneously. gorilla/websocket explicitly does not support concurrent writes and panics with `"concurrent write to websocket connection"`. This is particularly likely in this system where streaming Claude output arrives on a worker goroutine while heartbeat pings are sent from a separate goroutine — both need to write to the same connection.
 
 **Why it happens:**
-Developers set `GetUpdatesOpts.Timeout` (the Telegram API-level polling duration, in integer seconds) without realizing there is a separate HTTP-level timeout that governs the underlying `net/http` request (`RequestOpts.Timeout`, a `time.Duration`). These are two independent timeouts at different layers. The gotgbot default HTTP timeout was not designed to auto-scale with the polling duration. The `RequestOpts` must be nested inside `GetUpdatesOpts`, not at the `PollingOpts` level — the nesting is non-obvious.
+Developers write `conn.WriteJSON(msg)` from the worker goroutine and `conn.WriteMessage(websocket.PingMessage, nil)` from a heartbeat goroutine without realising these share the same underlying write buffer. gorilla/websocket uses an `isWriting` flag and panics rather than silently corrupting frames.
 
 **How to avoid:**
-Pass a `RequestOpts` with a `Timeout` value strictly greater than `GetUpdatesOpts.Timeout`. The canonical gotgbot middleware sample demonstrates the exact pattern:
+Funnel ALL writes through a single goroutine owning the connection, using a buffered send channel. The send goroutine reads from the channel and writes to the socket. All other goroutines put messages into the channel:
 
 ```go
-b.updater.StartPolling(b.bot, &ext.PollingOpts{
-    GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
-        Timeout: 9, // Telegram holds connection for up to 9 seconds
-        RequestOpts: &gotgbot.RequestOpts{
-            Timeout: 10 * time.Second, // HTTP timeout must be > long-poll duration
-        },
-    },
+type Conn struct {
+    ws     *websocket.Conn
+    sendCh chan []byte  // buffered, e.g. 64 entries
+}
+
+// Only this goroutine calls ws.WriteMessage
+func (c *Conn) writePump(ctx context.Context) {
+    ticker := time.NewTicker(pingInterval)
+    defer ticker.Stop()
+    for {
+        select {
+        case msg := <-c.sendCh:
+            c.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
+            if err := c.ws.WriteMessage(websocket.TextMessage, msg); err != nil {
+                return
+            }
+        case <-ticker.C:
+            c.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
+            c.ws.WriteMessage(websocket.PingMessage, nil)
+        case <-ctx.Done():
+            return
+        }
+    }
+}
+```
+
+**Warning signs:**
+Panic stack trace containing `gorilla/websocket` and `isWriting`. Intermittent panics that are hard to reproduce (timing-dependent).
+
+**Phase to address:**
+WebSocket client phase. Establish the write-pump pattern before wiring up Claude streaming output.
+
+---
+
+### Pitfall WS-3: Unbounded Send Channel Causes Memory Growth Under Backpressure
+
+**What goes wrong:**
+The send channel is unbounded (or very large). When the server is slow to read — due to network congestion, server overload, or a slow consumer — Claude output accumulates in the send channel. The node continues producing streaming output from subprocesses, all of which is enqueued into the send channel. Memory grows until the Windows Service is killed by the OS or the output is meaningless (1000 lines buffered before the server reads the first).
+
+**Why it happens:**
+Developers use `make(chan []byte, 1024)` thinking "large buffer = no blocking." The buffer fills silently. There is no feedback to the subprocess that the server cannot keep up.
+
+**How to avoid:**
+Use a bounded send channel (32-64 entries is sufficient). When the send channel is full, apply one of two strategies:
+- Drop the message and log a warning (acceptable for streaming output where freshness matters more than completeness)
+- Apply backpressure to the session worker (harder but correct for command dispatch)
+
+For streaming Claude output specifically: drop intermediate `assistant` stream events when the send channel is full. Never drop `result` events (they contain the final session ID needed for persistence).
+
+```go
+func (c *Conn) sendOrDrop(msg []byte) bool {
+    select {
+    case c.sendCh <- msg:
+        return true
+    default:
+        // log warning: dropping streaming event due to backpressure
+        return false
+    }
+}
+```
+
+**Warning signs:**
+Node memory growing continuously while a Claude session is streaming. `len(sendCh)` near capacity in debug logs. Server reporting stale timestamps on streaming messages.
+
+**Phase to address:**
+WebSocket client phase, during streaming output integration.
+
+---
+
+### Pitfall WS-4: Session State Divergence After Reconnect
+
+**What goes wrong:**
+The node reconnects after a network interruption. In-flight Claude sessions were streaming when the connection dropped. The server has no knowledge of what happened during the disconnection — it does not know if the session completed, failed, or is still running. If the node re-registers and the server dispatches a new command to the same project, the node now has two overlapping Claude CLI processes in the same working directory.
+
+**Why it happens:**
+Reconnection logic re-sends the "hello" / registration message but does not include the current session states. The server assumes a fresh node. The protocol has no concept of "I was running X when I disconnected."
+
+**How to avoid:**
+The node's registration/hello message must include a session status snapshot: for each project, whether a session is idle or running, and if running, the session ID. The server must reconcile this against its own state and either cancel the stale command or acknowledge the running session. Design this into the protocol from day one — retrofitting it is difficult.
+
+**Warning signs:**
+Duplicate sessions visible in node logs after reconnect. Server dispatching commands to a project that already has an active session. Two `claude` processes appearing in `tasklist` for the same working directory.
+
+**Phase to address:**
+Protocol design phase (before WebSocket client implementation). This is a protocol contract, not an implementation detail.
+
+---
+
+### Pitfall WS-5: Missing Read Deadline Allows Goroutine Leak on Dead Connection
+
+**What goes wrong:**
+The WebSocket read loop blocks indefinitely on `conn.ReadMessage()`. When the server disappears (crash, network partition, NAT timeout), TCP does not always deliver a FIN — the connection appears open at the socket level. The read goroutine blocks forever, holding the connection object alive and preventing reconnection logic from triggering.
+
+**Why it happens:**
+gorilla/websocket's `ReadMessage` blocks until a frame arrives or an error occurs. A silently-dead TCP connection produces neither. Without a read deadline or server-side pings, the goroutine leaks.
+
+**How to avoid:**
+Set a read deadline that requires the server to send at least one ping within the deadline window:
+
+```go
+conn.SetReadDeadline(time.Now().Add(pongWait))
+conn.SetPongHandler(func(string) error {
+    conn.SetReadDeadline(time.Now().Add(pongWait))
+    return nil
 })
 ```
 
-The rule: `RequestOpts.Timeout` (in `time.Duration`) must be strictly greater than `GetUpdatesOpts.Timeout` (in integer seconds, converted). A buffer of 1–5 seconds is conventional. The gotgbot documentation states: "It is recommended you set your PollingOpts.Timeout value to be slightly bigger (eg, +1)."
+When `pongWait` expires with no pong received, `ReadMessage` returns a timeout error, triggering reconnection. The write-pump sends a ping every `pingInterval` (e.g., 30s); `pongWait` should be `pingInterval + 10s`.
 
 **Warning signs:**
-- `context deadline exceeded` errors logged repeatedly even when the bot is idle.
-- Log entries cycling approximately every 5 seconds with timeout errors during quiet periods.
-- `Stop()` taking longer than expected to return because in-flight polling requests have not resolved.
-- Pattern: errors appear at regular intervals, not tied to user activity.
+Node logs showing no activity for minutes but reporting itself as connected. Server health dashboard showing node as connected but not sending heartbeats. Node goroutine count growing on each reconnect (old goroutines never exit).
 
 **Phase to address:**
-v1.1 Phase 1 or Phase 2 — this is a one-line fix in `bot.go:Start()` and can be addressed in the same pass as the channel auth fix.
+WebSocket client phase, as part of the connection lifecycle design.
 
 ---
 
-### Pitfall V1.1-3: Auth Regression — Private Chat Users Broken by Channel Auth Fix
+### Pitfall MP-1: Multiple Claude CLI Instances Writing to Same Working Directory
 
 **What goes wrong:**
-When updating `IsAuthorized` to handle channel senders, it is easy to inadvertently change the logic path for normal private-chat or group messages from human users, causing them to fail auth.
-
-Common regression patterns:
-- Adding an early return for channel senders that falls through incorrectly for human users.
-- Checking `channelID` against `MappingStore` for all update types, including private chats that are not in the mapping store, causing those to fail.
-- Removing or restructuring the `allowedUsers` loop while adding channel ID checks.
+Two Claude CLI subprocesses run simultaneously in the same project directory. Both read and modify `.claude/` state files (session history, settings). Claude CLI does not use file locking. One process's writes corrupt the other's session state, causing `--resume` to fail with a deserialized garbage session ID or silently using a wrong context window.
 
 **Why it happens:**
-Channel auth and user auth are fundamentally different checks conflated into one function. The fix for channel auth requires branching on sender type, and that branch must be mutually exclusive with the existing user auth path. Developers adding the channel path sometimes restructure the entire function body, inadvertently altering the existing path.
+The project supports "multiple simultaneous Claude CLI instances per project directory" as a design goal. The natural implementation is to spawn a new `claude` process for each incoming command without checking whether another is running.
 
 **How to avoid:**
-Implement the fix as an additive branch, not a rewrite:
-```
-if sender.IsUser():
-    authorize by userID in allowedUsers  // existing code, unmodified
-else:
-    authorize by channelID in MappingStore  // new code
-```
+Enforce a per-project serialization policy: only one Claude CLI instance may be running in a given working directory at a time. The existing `Session` struct already serializes commands via its `queue` channel — this model must be preserved when adding multiple "instances." In v1.2, "multiple instances per project" should mean multiple *logical sessions* (e.g., GSD workflow stages) that are run serially within the project, not truly concurrent subprocesses in the same directory.
 
-After the fix, run all existing middleware tests (`TestMiddlewareAuthAllowsAuthorized`, `TestMiddlewareAuthRejectsUnauthorized`, `TestMiddlewareAuthPassesChannelID`). If they still pass, the regression risk is low. Add new tests for the channel-sender path before considering the fix complete.
+If truly parallel execution in the same directory is required later, each logical instance must use its own isolated subdirectory or a separate session namespace.
 
 **Warning signs:**
-- Existing `TestMiddlewareAuth*` tests fail after the channel auth change.
-- Private chat messages to the bot stop working after the fix is deployed.
-- Human users who were previously authorized start receiving "You're not authorized" replies.
+`--resume` errors appearing only when two sessions start close together in time. Corrupted `.claude/` JSON visible in filesystem. Claude complaining about session not found after a concurrent run.
 
 **Phase to address:**
-v1.1 Phase 1 — verification step that must accompany the channel auth fix in the same phase.
+Session manager design phase. Clarify in the session dispatcher whether "multiple instances" means concurrent-in-directory or serially-queued-in-directory. Default to serial.
 
 ---
 
-### Pitfall V1.1-4: EffectiveSender Sender-Type Detection Misses Linked Channel and Anonymous Admin Cases
+### Pitfall MP-2: Subprocess Zombie / Resource Leak on Context Cancellation
 
 **What goes wrong:**
-`EffectiveSender.IsChannelPost()` returns true only when the sender is a channel admin posting directly to that same channel (the channel is both sender and destination, update type is `channel_post`). There are two other non-human sender types that also have nil `User` fields:
-
-1. **Linked channel forwards** — when a channel posts a message that is automatically forwarded to its linked discussion group, the update type is `message` (not `channel_post`) and `EffectiveSender.IsLinkedChannel()` is true.
-2. **Anonymous admins** — when a group admin posts as the group itself, `EffectiveSender.IsAnonymousAdmin()` is true and `User` may be a dummy value.
-
-Checking only `IsChannelPost()` misses both cases, causing them to fall into the user auth path with a non-user ID, and fail auth.
+A Claude CLI subprocess is killed via context cancellation (e.g., `/stop` command, node shutdown). The process exits but its goroutines reading `stdout` and `stderr` pipes remain blocked. On Windows, the subprocess may become a zombie if `cmd.Wait()` is not called, holding the PID and file handles. Over time, leaked subprocesses accumulate, exhausting file descriptor limits.
 
 **Why it happens:**
-The gotgbot `Sender` type has four distinct states (user, channel post, linked channel, anonymous admin) that map to different field combinations. Developers write for the most common case (`channel_post`) without accounting for the other three. The official docs warn: "It may be better to rely on EffectiveSender instead of EffectiveUser, which allows for easier use in the case of linked channels, anonymous admins, or anonymous channels."
+`exec.Cmd.Wait()` must be called to release OS resources. If the code returns from the streaming loop on error without calling `Wait()`, or if the read goroutines block on closed pipes and `Wait()` never completes, the process lingers.
+
+The existing codebase already sets `cmd.WaitDelay = 5 * time.Second` (Go 1.20+ feature) to cap how long `cmd.Wait()` blocks after the process exits. This must be preserved in v1.2.
 
 **How to avoid:**
-Use `sender.IsUser()` as the canonical test. If `IsUser()` returns false, the sender is a non-human entity of some kind, and channel-ID-based auth applies:
+Always call `cmd.Wait()` in a defer, even on error paths. Set `WaitDelay` to a finite value so pipe-reading goroutines are forcibly unblocked:
+
 ```go
-isChannelSender := !sender.IsUser()
-// or equivalently: sender.User == nil (but use the provided method)
-```
-This is more robust than checking `IsChannelPost() || IsLinkedChannel() || IsAnonymousAdmin()` individually.
-
-**Warning signs:**
-- Bot works for direct channel posts but fails for messages from anonymous admins ("Admin posted as group").
-- Bot works in the main channel but fails in a linked discussion group for forwarded posts.
-- Auth works for some channel interactions but not others with no obvious pattern.
-
-**Phase to address:**
-v1.1 Phase 1 — extend the channel sender detection to cover all non-user sender types, not just channel posts.
-
----
-
-### Pitfall V1.1-5: Middleware Returns EndGroups Incorrectly When Adding New Auth Branch
-
-**What goes wrong:**
-In gotgbot's dispatcher, `ext.EndGroups` stops processing all remaining handler groups — it is a hard stop for the entire update. The current auth middleware correctly returns `ext.EndGroups` on rejection. However, when adding channel auth logic, it is tempting to add a conditional early return in the middle of the middleware that uses `EndGroups` for cases that should actually fall through to the next check (e.g., returning `EndGroups` when the sender type check is inconclusive, rather than falling through to the user check).
-
-The `passthroughHandler` pattern used in this codebase (returning `nil` from a no-op) means: "completed this group, move to next." If a new conditional block returns `EndGroups` when it should pass through, all business handlers in group 0 stop receiving that update type.
-
-**Why it happens:**
-The distinction between `ext.EndGroups` (stop everything), `ext.ContinueGroups` (skip remaining handlers in this group, try next group), and `nil`/passthrough (match completed, move to next group) is subtle. In a middleware-as-handler pattern (negative dispatcher groups), the behavior is: `EndGroups` from group -2 prevents group -1 and group 0 from seeing the update. This is correct for auth rejection but wrong for conditional auth logic that has not yet decided.
-
-**How to avoid:**
-Only return `ext.EndGroups` at the definitive "this update is rejected" point. For all other control flow within the middleware, fall through to `return next.HandleUpdate(tgBot, ctx)` (allow) or return the rejection only after all auth checks are complete. Keep the middleware structure linear: one single decision point at the end, not multiple early-return `EndGroups` for different sub-conditions.
-
-**Warning signs:**
-- A handler in group 0 (business logic) is never reached for certain update types after the middleware change.
-- The middleware tests pass in isolation but business handler tests fail for channel update types.
-- Logs show updates being received but no handler responding, with no `auth_rejected` event logged.
-
-**Phase to address:**
-v1.1 Phase 1 — when modifying the middleware chain for channel auth. Review every return path in the modified middleware before committing.
-
----
-
-### Pitfall V1.1-6: Bot Replies "You're Not Authorized" Into the Channel Itself
-
-**What goes wrong:**
-When auth fails for a channel post, the current middleware attempts to reply with "You're not authorized..." using `ctx.EffectiveMessage.Reply()`. For channel posts, this reply goes back into the channel itself — not to a human user's DM. The channel becomes cluttered with bot error replies that no human explicitly triggered.
-
-Additionally, `Reply()` may fail for certain channel configurations (channels where the bot can post but not reply to specific messages), producing a secondary error that is logged as an error but ignored.
-
-**Why it happens:**
-The reply-on-rejection logic was designed for private chats and groups where a human user triggered the unauthorized request and should see the rejection message. Channel posts are triggered by the channel itself, not by a human requesting something — no human needs to see the rejection in the channel timeline.
-
-**How to avoid:**
-Before attempting to reply on auth rejection, check whether the update is a channel post:
-```go
-if ctx.EffectiveMessage != nil && !sender.IsChannelPost() {
-    _, _ = ctx.EffectiveMessage.Reply(tgBot, "You're not authorized...", nil)
-}
-```
-For channel-originated updates, log the rejection but do not reply into the channel.
-
-**Warning signs:**
-- The channel timeline contains "You're not authorized" messages from the bot.
-- Auth rejection audit events are logged but reply errors are also logged immediately after.
-- Users report seeing error messages appearing in the channel that they did not trigger.
-
-**Phase to address:**
-v1.1 Phase 1 — part of the channel auth fix. Handle the reply behavior for channel-type rejections differently from user-type rejections.
-
----
-
-### Pitfall V1.1-7: GetUpdatesOpts.Timeout=0 (Short Polling) Causing Rapid-Fire Requests
-
-**What goes wrong:**
-If `GetUpdatesOpts.Timeout` is set to 0 (or omitted, which defaults to 0), Telegram responds immediately with whatever updates are pending rather than holding the connection. The updater then immediately calls `getUpdates` again, creating a tight polling loop. Telegram will begin rate-limiting these requests after a short period, causing increasing response delays and eventually producing errors indistinguishable from connection timeouts.
-
-This is a related but distinct issue from Pitfall V1.1-2: the current code already uses `Timeout: 10`, but a change that accidentally resets this to 0 during the fix would cause a different (and harder to diagnose) class of failures.
-
-**Why it happens:**
-`0` is a valid Go zero value and the default. If `GetUpdatesOpts` is re-created during the fix without preserving the `Timeout: 10` value, it silently reverts to short polling.
-
-**How to avoid:**
-Always set a non-zero `Timeout` in `GetUpdatesOpts` for production polling. The canonical recommendation is 9–30 seconds. Include a comment explaining why the value is set:
-```go
-GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
-    // Non-zero timeout enables long-polling. Zero would use short-polling,
-    // which causes rapid-fire requests that trigger Telegram rate limiting.
-    Timeout: 9,
-    RequestOpts: &gotgbot.RequestOpts{
-        Timeout: 10 * time.Second, // Must be > Timeout above
-    },
-},
+cmd.WaitDelay = 5 * time.Second
+if err := cmd.Start(); err != nil { return err }
+defer cmd.Wait()  // always called, releases OS resources
 ```
 
+On Windows, use a process job object or `cmd.SysProcAttr` with `CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP` to ensure child processes are killed when the parent is killed. The existing `process.go` already uses `syscall` for this — do not remove it.
+
 **Warning signs:**
-- `getUpdates` calls appear in logs many times per second (short polling cadence).
-- Telegram starts returning slower responses or 429 errors unrelated to message volume.
-- Bot feels "laggy" even for simple commands.
+`tasklist | grep claude` showing stale `claude.exe` processes after sessions end. File descriptor count growing over time. `cmd.Wait()` blocking indefinitely during shutdown.
 
 **Phase to address:**
-v1.1 Phase 1 or Phase 2 — timeout configuration fix. Verify the timeout value is preserved during the fix.
+Session/subprocess management phase. Verify the existing `WaitDelay` pattern survives the Telegram removal refactor.
 
 ---
 
-## v1.0 Pitfalls — Original Milestone (2026-03-19)
-
-These pitfalls were identified during the initial Go rewrite and remain relevant for ongoing development.
-
----
-
-### Pitfall 1: Windows Process Tree Orphaning on Subprocess Kill
+### Pitfall MP-3: Session ID Collision When Multiple Instances Use Same Persistence File
 
 **What goes wrong:**
-On Windows, `cmd.Process.Kill()` kills only the top-level process. Since the Claude CLI spawns with `shell: true` (or equivalent), you kill the `cmd.exe` wrapper but not the actual `claude.exe` child, which keeps running and holds file locks, network ports, and the session. Multiple orphaned claude processes accumulate across restarts. The TypeScript version already solved this with `taskkill /pid <pid> /T /F` — naively porting to Go's `cmd.Process.Kill()` will break this.
+Two Claude CLI sessions for the same project complete at nearly the same time. Both attempt to write their new session ID to the JSON persistence file. The atomic write-rename pattern (write to temp file, rename over target) means one write wins and the other is silently lost. The losing session ID is orphaned — the `--resume` flag will point to the winning session, and the other session's context is permanently inaccessible.
 
 **Why it happens:**
-Developers assume `Process.Kill()` terminates the whole tree. On Unix, negative PID signaling (`kill(-pgid, SIGTERM)`) kills process groups. Neither mechanism works on Windows — the OS uses Job Objects for process group killing, and `taskkill /T /F` is the practical userland approach.
+The current `StateManager` uses `sync.RWMutex` for in-process coordination but has no concept of which session ID belongs to which instance. When two instances complete simultaneously, both call `OnQueryComplete(newSessionID)` and both attempt to persist.
 
 **How to avoid:**
-On Windows, implement a `killTree(pid int)` that calls `exec.Command("taskkill", "/pid", strconv.Itoa(pid), "/T", "/F").Run()`. Wrap this in a platform build tag. Do not use `cmd.Process.Kill()` as the sole termination path on Windows. Test by inspecting Task Manager after sending a stop command — the `claude.exe` process should disappear.
+Persist session IDs per-instance, keyed by a stable instance identifier (e.g., UUID assigned at instance creation). The persistence format must change from a single `sessionID` string per project to a map from instance ID to session ID. The `--resume` flag uses the instance's own session ID, not a shared project-level ID.
 
 **Warning signs:**
-- `claude.exe` processes accumulate in Task Manager after stop/restart commands
-- Subsequent sessions fail with "session already active" or file lock errors
-- CPU stays elevated after user-initiated stop
-- `CLAUDECODE` environment variable leaks into nested sessions causing "nested session" errors
+Session IDs changing unexpectedly between commands in the same project. `/status` showing a session ID that doesn't match the last completed run. Log lines showing multiple `OnQueryComplete` calls within milliseconds for the same project.
 
 **Phase to address:**
-Phase 1 (Core subprocess management) — this is load-bearing infrastructure for every session operation.
+Session/subprocess management phase, during the multi-instance model design.
 
 ---
 
-### Pitfall 2: Concurrent Map Access Panic on Multi-Project Sessions
+### Pitfall TG-1: Telegram-Coupled Abstractions Leak Into New Protocol Layer
 
 **What goes wrong:**
-The multi-project design routes each Telegram channel to an independent `ClaudeSession`. If a map of `channelID -> session` is accessed from multiple goroutines (one per incoming update) without a mutex, Go will panic with `fatal error: concurrent map read and map write`. This does not manifest in single-project testing but will crash the service in production once two channels send messages simultaneously.
+The existing `StatusCallbackFactory` type takes a `chatID int64` — a Telegram-specific concept. The `QueuedMessage` struct has `ChatID int64` and `UserID int64` fields. The `formatting` package converts Markdown to Telegram HTML. If these types are reused directly in v1.2 without redesign, the new WebSocket protocol layer inherits Telegram semantics: node messages still carry `chatID`, the formatting layer still produces HTML, and the protocol spec becomes polluted with chat-platform concepts.
 
 **Why it happens:**
-Go maps are not goroutine-safe. Most Telegram libraries (gotgbot, go-telegram-bot-api) dispatch each update in its own goroutine. The map is accessed from every handler call. Developers often forget this during initial development when testing with a single channel.
+Reuse feels faster. "Just change the transport and keep the rest" is tempting. But the chatID/userID model is not the right identity model for a node-server protocol where identity is node ID + project ID + instance ID.
 
 **How to avoid:**
-Wrap the `channelID -> session` registry in a struct with an embedded `sync.RWMutex`. Use `RLock/RUnlock` for reads (looking up existing sessions) and `Lock/Unlock` for writes (registering new channels). Consider using `sync.Map` if the registry is read-heavy and written rarely. Run all tests with `-race` flag — the race detector will catch this before it crashes in production.
+Perform a clean-break refactor during Telegram removal. Define new protocol-level identity types: `NodeID`, `ProjectID`, `InstanceID`. Replace `StatusCallbackFactory` with a protocol-agnostic event emitter. Move the Telegram-specific formatting package out of the core and archive it (don't delete — it contains tested logic that may be useful for reference or future protocol display layers).
+
+Concretely: the new `QueuedMessage` equivalent should reference `InstanceID`, not `chatID`. The status callback should produce protocol messages, not Telegram API calls.
 
 **Warning signs:**
-- Works perfectly with one channel, fails unpredictably with two
-- `fatal error: concurrent map read and map write` panic in logs
-- Race detector (`go test -race`) reports data race on registry map
-- Service restarts without explanation under load
+`int64` chatID values appearing in WebSocket message schemas. `formatting.go` being imported by the new transport layer. Test files referencing Telegram bot methods.
 
 **Phase to address:**
-Phase 1 (Core bot structure) — design the session registry with mutex from day one, not as a retrofit.
+Telegram removal phase. This must be done before the WebSocket protocol layer is built, not after — retrofitting identity models is expensive.
 
 ---
 
-### Pitfall 3: NSSM/Windows Service Subprocess PATH Blindness
+### Pitfall TG-2: Session Persistence Keys Tied to Telegram Channel IDs
 
 **What goes wrong:**
-The Windows Service runs as `SYSTEM` or a service account with a stripped PATH. When the bot tries to spawn `claude` (and later `pdftotext` or `ffmpeg`), `exec.LookPath` fails silently or finds wrong binaries. The TypeScript version already encountered this — the CLAUDE.md notes explicitly that PATH must include Homebrew paths. The Go version on Windows has the same problem: `%AppData%\npm`, `%USERPROFILE%\.local\bin`, and other user-scoped directories are absent from the service's PATH.
+The current persistence file (`sessions.json`) keys session state by Telegram channel ID (`int64`). In v1.2, channel IDs have no meaning. If the persistence format is carried over unchanged, the v1.2 node cannot load persisted session data without knowing the old channel IDs. The session resume capability — a core feature — is broken on first startup after migration.
 
 **Why it happens:**
-Windows Services inherit the system's minimal PATH, not the interactive user's PATH. Tools installed via npm global (`claude`), scoop, or winget into user directories are invisible. Developers test interactively where PATH is rich, then deploy as a service and everything breaks.
+The migration path is not planned. Developers assume "we'll just clear the session state" but users lose active Claude context windows and the `/resume` capability that was explicitly designed in v1.0.
 
 **How to avoid:**
-Resolve all external binary paths at startup with explicit absolute path configuration via environment variables (`CLAUDE_CLI_PATH`, `PDFTOTEXT_PATH`, `FFMPEG_PATH`). Fall back to `exec.LookPath` only if the explicit path is unset. Log the resolved path at startup so failures are diagnosable. In NSSM configuration, explicitly set the PATH environment variable under "Environment" to include required directories.
+Design a persistence migration step as part of the Telegram removal phase:
+1. Define the new persistence key format: `projectID` (directory path or its hash) + `instanceID`
+2. Write a one-time migration that reads the old `sessions.json`, maps channel IDs to project directories via the existing `mappings.json`, and writes a new `sessions.json` with the v1.2 format
+3. Test the migration on a copy of production data before deploying
 
 **Warning signs:**
-- Bot works when run manually (`go run .`) but not as a service
-- `exec: "claude": executable file not found in %PATH%` in service logs
-- PDF extraction silently produces empty results
-- Service starts successfully but all Claude queries fail immediately
+Empty session store on first v1.2 startup. `--resume` always starting fresh sessions. Log lines "no session found for project" immediately after migration.
 
 **Phase to address:**
-Phase 3 (Windows Service deployment) — but the binary path resolution architecture should be built in Phase 1 to avoid rework.
+Telegram removal phase. Migration must ship with the first v1.2 build, not as a follow-up.
 
 ---
 
-### Pitfall 4: editMessageText Flood Limit Causing Full Bot Lockout
+### Pitfall TG-3: Removing gotgbot Dependency Before All Its Functionality Is Reimplemented
 
 **What goes wrong:**
-Streaming responses generate a high volume of `editMessageText` calls (one per throttle interval per active session). With multiple simultaneous sessions and streaming active, the bot easily exceeds Telegram's rate limits. When a 429 occurs, **the entire bot is blocked** for the `retry_after` duration — not just the affected chat. All users across all projects experience the blackout. The TypeScript version throttles updates (STREAMING_THROTTLE_MS) but this is a single-session design. With N simultaneous projects all streaming, the total rate multiplies.
+The team removes `gotgbot/v2` from `go.mod` to mark the Telegram removal as "done." But several non-obvious pieces of functionality lived inside the gotgbot integration: rate limiting (per-channel `rate.Limiter` instances keyed by channel ID), the dispatch queue ordering, the middleware chain (auth, logging, audit). These are not imported from gotgbot directly but were designed around its update dispatch model. Removing gotgbot without auditing what depended on its dispatch model leaves gaps.
 
 **Why it happens:**
-Telegram rate limits are per-bot, not per-chat. Developers test with one active session and acceptable throttling, but N concurrent sessions multiply the edit rate by N. `editMessageText` and `sendMessage` share the same per-bot flood limits. There is no "burst budget" — once you hit 429, everything stops.
+`go mod tidy` removes the dependency cleanly (no import errors), giving a false sense of completion. The functionality gaps only appear at runtime.
 
 **How to avoid:**
-Implement a global rate limiter (token bucket or sliding window) across all outgoing Telegram API calls, not per-session. Use a single shared API call queue with configurable max messages-per-second. When a 429 is received, parse `retry_after` from the error response and back off globally. Increase `STREAMING_THROTTLE_MS` proportional to the number of active sessions (e.g., base_throttle * active_session_count). Consider skipping intermediate streaming updates entirely under high load and only sending final results.
+Before removing the gotgbot dependency, audit every handler and middleware file for functionality that must be preserved in v1.2:
+- Rate limiting (move to per-project, per-instance config)
+- Audit logging (currently logs chatID — must be updated to log nodeID/projectID)
+- Auth middleware (replace with WebSocket authentication at connection time)
+- The dispatch ordering guarantees (currently: one goroutine per update)
+
+Create a checklist of all non-transport functionality and verify each one has a v1.2 equivalent before removing the import.
 
 **Warning signs:**
-- Random "bot unresponsive" windows affecting all chats simultaneously
-- 429 errors in logs followed by silence
-- Streaming works fine with one project, fails under two or more simultaneous sessions
-- `retry_after` values in error responses (look for these in Telegram API error payloads)
+Missing rate limiting after migration. Audit log entries with zero values for node/project identity. Commands processed out of order under concurrent load.
 
 **Phase to address:**
-Phase 2 (Multi-project session management) — the rate limiting architecture must account for N sessions before the multi-project feature ships.
-
----
-
-### Pitfall 5: Claude CLI `--resume` Session ID Mismatch After Context Limit
-
-**What goes wrong:**
-When Claude hits its context window limit, the session is invalidated on the Claude side but the bot still holds the session ID in its JSON persistence. On the next message, `--resume <old-session-id>` is passed to the CLI, which either fails silently or returns an error that looks like a network error. The bot appears broken. The TypeScript version handles this by detecting `context limit exceeded` patterns in stderr/stdout and auto-clearing the session — replicating this detection is critical.
-
-**Why it happens:**
-Session IDs are opaque strings with no expiry signal. The only indication a session is dead is a pattern match on error output from the CLI. Developers implementing basic session persistence miss this edge case.
-
-**How to avoid:**
-Implement `isContextLimitError(text string) bool` matching the patterns already proven in the TypeScript version: `input length and max_tokens exceed context limit`, `exceed context limit`, `context limit.*exceeded`, `prompt.*too.*long`, `conversation is too long`. On detection: clear the session ID from memory and JSON persistence, notify the user, and return a clean error — do not retry with the same session ID.
-
-**Warning signs:**
-- User reports bot "stuck" after a long conversation
-- `claude` CLI exits non-zero with stderr containing "context" or "limit"
-- Sessions accumulate in the JSON persistence file with no new successful messages
-- `--resume` calls always fail for a specific session ID
-
-**Phase to address:**
-Phase 1 (Claude session wrapper) — this is part of the core session state machine.
-
----
-
-### Pitfall 6: JSON Persistence File Corruption Under Concurrent Writes
-
-**What goes wrong:**
-Multiple goroutines (one per channel session) may attempt to write the session persistence file simultaneously. A concurrent write produces a half-written JSON file. On the next restart, JSON parse fails and all session state is lost. This is worse than no persistence — the file exists but is unreadable, and naive error handling silently treats it as empty.
-
-**Why it happens:**
-Go's `os.WriteFile` is not atomic — it writes in place. If two goroutines call it simultaneously, the resulting file is a corruption of both writes. The TypeScript version uses `writeFileSync` (which is single-threaded in Node.js, so not an issue), but Go's goroutine model makes this race realistic.
-
-**How to avoid:**
-Use a single goroutine (or a mutex-protected writer) for all persistence writes. The pattern is: write to a temp file in the same directory, then `os.Rename` to the target path (on Windows, use `MoveFileEx` via `golang.org/x/sys/windows` for atomic rename, or use `github.com/natefinch/atomic`). Protect the read-modify-write cycle with a mutex. Test by running concurrent save operations under the race detector.
-
-**Warning signs:**
-- `json: unexpected end of JSON input` or similar parse errors at startup
-- Sessions lost after service restart despite persistence code
-- Intermittent "empty sessions list" after busy periods
-- Race detector flags the persistence file write path
-
-**Phase to address:**
-Phase 1 (session persistence) — build atomic write from the start, not as a follow-up fix.
-
----
-
-### Pitfall 7: Goroutine Leak from Uncleaned Claude CLI stdout/stderr Pipes
-
-**What goes wrong:**
-When `os/exec` is used with `StdoutPipe()` or `StderrPipe()`, Go spawns goroutines to copy data between the pipe and internal buffers. If the subprocess is killed mid-stream (user-initiated stop) and the pipe is not drained before `cmd.Wait()`, these goroutines block indefinitely waiting for EOF that never comes. Over time, the service accumulates hundreds of leaked goroutines, slowly consuming memory until the service becomes unresponsive.
-
-**Why it happens:**
-The Go docs for `StdoutPipe` warn that `Wait` blocks until all goroutines finish copying — which requires EOF on the pipe. An abruptly killed subprocess may leave the pipe in a state where the write end is closed (the process is dead) but Go's internal copy goroutine hasn't acknowledged it yet. Using `cmd.Stdout = &buf` (direct assignment) instead of `StdoutPipe` avoids the goroutine issue but blocks until process exit.
-
-**How to avoid:**
-Set a `WaitDelay` on `exec.Cmd` (available since Go 1.20) — this caps how long `Wait` will wait for I/O goroutines after the process exits, preventing indefinite blocking. Alternatively, use `context.WithTimeout` and `CommandContext` so the subprocess gets a kill signal on timeout. Drain pipes explicitly before calling `Wait` on stopped processes, or use the `go-cmd/cmd` library which handles this correctly cross-platform. Use `pprof` goroutine dumps to verify goroutine count stays stable across many stop/start cycles.
-
-**Warning signs:**
-- `runtime.NumGoroutine()` grows without bound across session stop/starts
-- Service memory grows slowly over days of operation
-- `/debug/pprof/goroutine` shows many blocked goroutines on pipe read
-- Service becomes sluggish after many stop/start cycles without restarting
-
-**Phase to address:**
-Phase 1 (subprocess management) — set `WaitDelay` and use `CommandContext` from the start.
-
----
-
-### Pitfall 8: Long-Polling Offset Reset Causing Duplicate or Missed Updates
-
-**What goes wrong:**
-If the offset is not persisted across restarts (or is reset to 0 on error), the bot re-processes all unacknowledged updates from the last 24 hours. For this bot, that means re-sending Claude messages for every message received during the downtime — potentially dozens of unwanted Claude queries firing at once on service restart.
-
-**Why it happens:**
-The offset must be incremented to `last_update_id + 1` after each `getUpdates` batch and acknowledged to Telegram. If the process crashes mid-batch before confirming the offset, or if the offset is not persisted to disk, it resets to 0. Most Go Telegram libraries handle this internally (gotgbot, go-telegram-bot-api), but only while the process is running — a crash or service restart resets in-memory state.
-
-**How to avoid:**
-Use a library that handles long-polling correctly (gotgbot's updater persists nothing — rely on its in-process offset tracking and ensure clean shutdown via context cancellation before service stop). On SIGTERM/service stop signal, call the library's stop method, which sends a final `getUpdates` with the current offset to acknowledge pending updates. Do not call `deleteWebhook` in a loop at startup — it causes 400 errors if no webhook was set.
-
-**Warning signs:**
-- Duplicate Claude queries fired after service restart
-- Messages from "hours ago" appearing in logs after reboot
-- 400 `ETELEGRAM: 400 Bad Request: there is no webhook active` in logs at startup
-- Bot "catches up" on old messages with no rate limiting
-
-**Phase to address:**
-Phase 3 (Windows Service deployment) — the service stop signal handler must cleanly drain the update queue before exit.
+Telegram removal phase. Run the audit before writing any replacement code.
 
 ---
 
 ## Technical Debt Patterns
 
+Shortcuts that seem reasonable but create long-term problems.
+
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Hardcoding `GetUpdatesOpts.Timeout: 10` without matching `RequestOpts.Timeout` | Simpler startup code | Continuous `context deadline exceeded` log noise; misleading error signals | Never — always pair these two values |
-| Single `IsAuthorized(userID, channelID, allowedUsers)` handling all sender types without branching | Fewer function parameters | Logic becomes entangled when channel and user auth rules differ | Only if the two paths remain clearly separated via branching; document the invariant |
-| Returning `ext.EndGroups` from all middleware regardless of rejection reason | Consistent behavior | Prevents adding fine-grained group-level middleware later | Acceptable for auth/rate-limit (total-stop rejections); not for informational or conditional middleware |
-| No test for `ctx.EffectiveSender == nil` path | Less test code | Silent userID=0 behavior may pass auth if 0 is ever added to allowedUsers | Never — the nil path should be explicitly tested |
-| `sync.Map` everywhere instead of typed registry struct with RWMutex | Less boilerplate | Loses type safety, harder to reason about invariants | Never — the registry is small and well-defined |
-| Single global session instead of per-channel registry | Faster MVP | Blocks entire multi-project feature; requires full redesign | Only for a throwaway prototype, not this project |
-| Skip `WaitDelay` on exec.Cmd | Simpler code | Goroutine leaks on stop | Never — set it in the constructor |
-| Write JSON directly without temp-file rename | Simpler code | File corruption on crash | Never — use atomic write from day one |
-| Hardcode throttle ms at fixed 1500ms | Simple | Floods Telegram at 3+ concurrent sessions | MVP only; replace with adaptive throttle before multi-project ships |
-| Use `exec.LookPath` at query time for claude binary | No config needed | Silent failure in Windows Service environment | Never — resolve paths at startup with explicit env var fallback |
-| Ignore `retry_after` in 429 responses | Simpler retry logic | Repeated 429 cascades blocking all channels | Never — parse and respect `retry_after` |
+| Reuse `int64` chatID as project key | No persistence migration needed | Breaks conceptual model; ties node to Telegram even after removal | Never |
+| Unbounded send channel | No dropped messages | OOM under backpressure; hides slow server | Never |
+| Fixed 1s reconnect sleep | Simple to write | Reconnection storms if server restarts | Never for production |
+| Skip session status in hello message | Simpler protocol | Orphaned sessions after any reconnect | Never |
+| Single goroutine for reads AND writes | Simpler code | Forces explicit demultiplexing; blocks on slow writes during read | Never — always separate read/write goroutines |
+| One shared persistence file for all instances | No format change | Session ID collision on concurrent completion | Only if serial-per-project is enforced |
+| Import `formatting` package in transport layer | Reuse existing code | Telegram HTML in protocol messages | Never |
 
 ---
 
 ## Integration Gotchas
 
+Common mistakes when connecting to external services.
+
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| gotgbot long polling | Setting `GetUpdatesOpts.Timeout` without matching `RequestOpts.Timeout` inside it — HTTP client times out before Telegram responds | Set `RequestOpts.Timeout = time.Duration(GetUpdatesOpts.Timeout+1) * time.Second` nested inside `GetUpdatesOpts.RequestOpts` |
-| gotgbot long polling | Using `Timeout: 0` (short polling) in production | Use a non-zero timeout (9–30s) to avoid rapid-fire requests that trigger Telegram rate limits |
-| Telegram channel posts | Checking `msg.From.Id` for auth on channel post messages | Check `EffectiveChat.Id` for channel-originated messages; `From` is nil for channel posts per the Bot API spec |
-| gotgbot `EffectiveSender.Id()` | Calling `Id()` without checking sender type — returns channel chat ID (negative int64) for channel posts | Check `sender.IsUser()` first; only compare against `allowedUsers` if `IsUser()` is true |
-| gotgbot dispatcher groups | Adding middleware to group 0 alongside business handlers — execution order within a group is undefined | Always use dedicated negative group numbers for middleware (-2, -1, etc.) as the codebase already does |
-| gotgbot `Stop()` on shutdown | Calling `Stop()` while long-poll requests are in-flight with short HTTP timeouts — slow shutdown | Ensure `RequestOpts.Timeout` is set so in-flight requests resolve within the shutdown window |
-| Telegram Bot API | Calling `answerCallbackQuery` only when you have something to show | Call `answerCallbackQuery` on every callback or Telegram shows a loading spinner indefinitely |
-| Telegram Bot API | Assuming `editMessageText` succeeds silently | It returns `Bad Request: message is not modified` when content is identical — treat this as success, not an error |
-| Telegram Bot API | Setting `parse_mode: HTML` without validating output | Unclosed HTML tags cause the entire message to fail; always have a plain-text fallback send |
-| Claude CLI | Setting `CLAUDECODE` env var in subprocess env | Causes "nested Claude session" error; explicitly delete it from the subprocess environment |
-| Claude CLI | Calling `--resume` with a session ID from a different working directory | Sessions are directory-scoped in Claude; verify working dir matches before resuming |
-| OpenAI Whisper API | Sending voice OGG files directly from Telegram | Telegram voice notes are OGG/Opus; Whisper accepts OGG but needs the correct content-type header (`audio/ogg`) |
-| pdftotext (Windows) | Assuming it's in PATH for the service account | Must be installed and PATH configured explicitly in NSSM environment settings |
+| Claude CLI (NDJSON) | Reading stdout line-by-line without a scanner buffer limit | Use `bufio.Scanner` with an explicit buffer size (default 64KB is too small for large tool outputs); set to 1MB |
+| Claude CLI | Assuming process exits cleanly when context is cancelled | Always call `cmd.Wait()` in defer; set `WaitDelay = 5s` to prevent pipe goroutine leaks |
+| Claude CLI | Not filtering `CLAUDECODE=` from env before spawning subprocess | Nested claude invocations produce errors; the existing `FilteredEnv` pattern must be preserved in v1.2 |
+| WebSocket server | Sending auth token as URL query parameter | Token appears in server access logs and any proxy logs; send in first message after connection or use `Sec-WebSocket-Protocol` header during handshake |
+| WebSocket server | Not setting write deadline before every write | A slow or dead server causes `WriteMessage` to block indefinitely; always `SetWriteDeadline(time.Now().Add(writeTimeout))` before each write |
+| Windows Service | Not propagating SIGTERM/SERVICE_CONTROL_STOP to subprocess tree | Claude CLI child processes remain after service stop; use a process job object or `CREATE_NEW_PROCESS_GROUP` |
 
 ---
 
 ## Performance Traps
 
+Patterns that work at small scale but fail as usage grows.
+
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Short-polling (Timeout=0) instead of long-polling | Rapid-fire getUpdates calls; Telegram begins delaying responses; CPU spikes | Always use Timeout >= 1 in GetUpdatesOpts | Immediately at any load level |
-| HTTP client timeout shorter than long-poll duration | `context deadline exceeded` every polling cycle even when idle; high TCP reconnect rate | Pair RequestOpts.Timeout > GetUpdatesOpts.Timeout as described above | Immediately, but silently — bot functions but with log noise |
-| editMessageText on every streaming chunk | 429 flood errors, bot blackouts | Throttle per-session, aggregate across sessions, respect global rate budget | At 2+ simultaneous active streaming sessions |
-| Blocking on `cmd.Wait()` in request goroutine | Handler goroutine hangs, updates queue up | Always run subprocess in its own goroutine, communicate via channel | Immediately on any stop/restart while streaming |
-| Saving session JSON on every received streaming event | Excessive disk I/O, file contention | Save session ID only once on first receipt, save state only on meaningful change | With fast Claude responses emitting many events |
+| Logging every streaming NDJSON line at DEBUG level | Log files grow GB/day per active session | Log at TRACE level with a build tag; only log final result events and errors at INFO | 3+ active sessions streaming simultaneously |
+| JSON marshalling inside send-channel hot path | CPU spike during streaming output; GC pressure | Pre-marshal messages; reuse `json.Encoder` with a buffer pool | High-frequency streaming (>100 events/sec) |
+| Synchronous persistence on every session event | File I/O on the worker goroutine; serializes all output | Batch persistence: write on query completion, not on every streaming event | Sessions with long multi-step tool sequences |
+| Creating a new `*json.Decoder` per NDJSON line | Allocations per line for long-running sessions | Create one decoder per subprocess and reuse it | Sessions with >1000 tool events |
 
 ---
 
 ## Security Mistakes
 
+Domain-specific security issues beyond general web security.
+
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Accepting userID=0 as authorized | If `0` is accidentally added to allowedUsers, all unauthenticated channel updates pass | Explicitly reject userID == 0 and channelID == 0 in `IsAuthorized` as invalid identifiers |
-| Channel auth by channel username string instead of ID | Channel usernames can change; auth check becomes invalid after rename | Always use channel numeric ID (negative int64) from `EffectiveChat.Id`, never username strings |
-| Authorizing all messages from any channel without verifying the channel is in MappingStore | Any channel the bot is added to could control it | Channel auth must confirm the channel ID is in the configured project mappings, not just "any channel" |
-| Logging auth rejection with full message content | Audit log leaks message text from unauthorized senders | Log only sender ID, channel ID, and update type on auth rejection — never message text |
-| Per-channel auth based only on channel ID (no membership check) | Any user who finds the channel ID can control Claude sessions | Validate channel membership or maintain an explicit allowlist of channel IDs in config |
-| Passing user-provided text directly as Claude prompt without sanitization | Prompt injection could instruct Claude to exfiltrate files or run dangerous commands | Apply the same `--allowed-paths` considerations as the TypeScript version; rate limit prompt length |
-| Storing bot token in plain text in service environment | Service account compromise exposes bot token | Store token in Windows Credential Manager or environment variable set only in NSSM |
-
----
-
-## UX Pitfalls
-
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| Bot replies "You're not authorized" into the channel itself | Channel becomes cluttered with error replies; no human sees or needs them | Check sender type before replying; for channel-originated updates, log the rejection but do not reply into the channel |
-| No reply possible for channel posts — `Reply()` fails silently | Secondary error logged; confusion during debugging | Guard `Reply()` with `if ctx.EffectiveMessage != nil && !sender.IsChannelPost()` |
-| Continuous `context deadline exceeded` errors in Windows Service logs | Log file grows rapidly; real errors masked | Fix the HTTP timeout pairing (V1.1-2) — stops log noise completely |
-| No feedback between message send and first streaming chunk | User thinks bot is broken, sends duplicate messages | Send "typing..." action immediately, then a "Processing..." message within 1 second |
-| Streaming updates too fast (< 500ms interval) | Telegram notification spam, 429 errors | Throttle to minimum 1500ms between edits during streaming |
-| Silent failure when channel has no linked project | User confused why bot doesn't respond | Prompt: "This channel has no linked project. Reply with the project path to link it." |
-| Callback query buttons staying active after selection | User taps same button twice thinking first tap failed | Call `editMessageReplyMarkup` to remove keyboard immediately on first callback |
+| Node ID is just a hostname or machine name | Trivially spoofed; any machine can impersonate any node | Node ID must be a UUID generated at first run and stored in config; server validates against pre-registered node list |
+| Shared static API key for all nodes | Key leak compromises all nodes simultaneously | Per-node API keys; rotation mechanism in the protocol |
+| Auth token in WebSocket URL | Token logged by load balancers, proxies, and server access logs | Send auth in first protocol message after connection; server closes unauthenticated connections after a timeout (e.g., 5s) |
+| Passing raw server command strings to `exec.Command` | Command injection if server is compromised | Never use `exec.Command` with shell interpolation; always use slice args: `exec.Command("claude", args...)` — the existing code does this correctly; verify it survives the refactor |
+| Allowing the server to specify arbitrary working directories | Path traversal to sensitive directories outside project roots | Validate every server-specified path against the node's `ALLOWED_PATHS` list before use; the existing `security.ValidatePath` must be applied at the WebSocket dispatch layer |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Channel auth fix (v1.1):** Tests pass with mock channel sender — verify with live channel by sending a message from the channel itself (not just as an admin user in personal DM)
-- [ ] **HTTP timeout fix (v1.1):** Log shows zero `context deadline exceeded` errors during a 60-second idle period — verify by tailing the Windows Service log file after deployment
-- [ ] **Auth regression (v1.1):** All 77+ existing handler tests still pass after middleware changes — run `go test ./...` before committing
-- [ ] **Nil EffectiveSender (v1.1):** Explicit test added for `ctx.EffectiveSender == nil` case in `TestMiddlewareAuth*` — this path currently has no dedicated test
-- [ ] **Channel reply guard (v1.1):** `ctx.EffectiveMessage.Reply()` in auth rejection path is guarded against channel-type updates — confirm no "unauthorized" messages appear in the channel timeline
-- [ ] **RequestOpts nesting (v1.1):** Confirm the `RequestOpts` is set on `GetUpdatesOpts.RequestOpts` (not at the `PollingOpts` level) — the nesting is non-obvious
-- [ ] **Windows Service deployment:** Test by actually installing via NSSM and rebooting — interactive `go run` masks PATH and environment differences
-- [ ] **Multi-project sessions:** Test with two channels sending messages simultaneously, not sequentially — concurrency bugs only appear under concurrent load
-- [ ] **Stop/resume flow:** Verify that stopping a query mid-stream and immediately sending a new message results in exactly one active Claude process
-- [ ] **Context limit handling:** Let a session actually hit the context limit (or mock it) — verify session is cleared, user is notified, next message starts fresh
-- [ ] **Rate limiting across sessions:** Start two projects both streaming simultaneously and verify no 429 errors in the first 5 minutes
-- [ ] **JSON persistence:** Kill the process with `taskkill /F` (hard kill), restart, verify session list is intact and the file is valid JSON
+Things that appear complete but are missing critical pieces.
+
+- [ ] **WebSocket client connected:** Verify read deadline is set and pong handler resets it — a connection with no deadline appears working until the server dies silently
+- [ ] **Telegram removed:** Run `go mod tidy && go build ./...` — zero import errors does not mean zero functionality gaps; audit middleware, rate limiting, and audit logging separately
+- [ ] **Multi-instance implemented:** Check `tasklist` on Windows for stale `claude.exe` processes after a session stop — goroutine-level cleanup may appear clean while OS processes linger
+- [ ] **Persistence migrated:** Start v1.2 node after migration and verify `/status` shows existing sessions with correct session IDs, not fresh empty sessions
+- [ ] **Reconnection works:** Kill the server while a Claude session is streaming; verify the session completes locally, the node reconnects, and the final result is delivered to the server without duplicates
+- [ ] **Backpressure handled:** Use a slow mock server that reads WebSocket messages at 1 msg/sec while Claude streams at 50 msg/sec; verify node memory stays bounded
+- [ ] **Shutdown is clean:** Stop the Windows Service while a Claude session is running; verify `claude.exe` is not visible in Task Manager 10 seconds later
 
 ---
 
 ## Recovery Strategies
 
+When pitfalls occur despite prevention, how to recover.
+
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Auth regression breaks private chat (v1.1) | LOW | Revert `IsAuthorized` change; re-deploy service; JSON state files are unaffected |
-| Wrong timeout values deployed (v1.1) | LOW | Update `bot.go` Start() config; restart Windows Service via NSSM; no data migration needed |
-| Middleware EndGroups in wrong place — handlers silent (v1.1) | MEDIUM | Add debug logging to identify which group swallows updates; correct return value; redeploy |
-| Channel auth accepts all channels — security regression (v1.1) | MEDIUM | Revert channel auth change; add MappingStore verification before accepting channel sender; redeploy |
-| Orphaned claude.exe processes accumulating | LOW | `taskkill /IM claude.exe /F` from admin prompt; add to NSSM pre-start script |
-| Corrupted session JSON file | LOW | Delete the file; bot recreates it; sessions lost but service functional |
-| Bot globally rate-limited (429) | LOW | Wait for `retry_after` duration (typically 1-60s); implement automatic back-off in code |
-| Concurrent map panic (crash) | MEDIUM | Service auto-restarts via NSSM; fix requires adding mutex protection before next deploy |
-| Session ID invalid after context limit | LOW | User runs `/new` command to start fresh session |
-| Goroutine leak degrading service | HIGH | Restart service (NSSM); fix requires adding `WaitDelay` and context cancellation before next deploy |
+| Reconnection storm hit server | LOW | Add exponential backoff + jitter to node reconnect logic; redeploy; server recovers once reconnect pressure drops |
+| Concurrent write panic | HIGH | Panic crashes the node process; NSSM restarts it; add write-pump pattern before next deploy; examine crash dump for goroutine that violated the single-writer rule |
+| Session ID collision corrupted persistence | MEDIUM | Manually edit `sessions.json` to restore correct session IDs; add per-instance session ID storage to prevent recurrence |
+| Zombie subprocesses after service stop | LOW | `taskkill /F /IM claude.exe`; fix `WaitDelay` and process group handling before next deploy |
+| Telegram types leaked into protocol | HIGH | Protocol redesign required; server and node must be updated together; data migration for any persisted messages using chatID as identity |
+| Session persistence broken after migration | MEDIUM | Run migration script on `sessions.json` using `mappings.json` as the channel-to-directory lookup; restart node |
 
 ---
 
 ## Pitfall-to-Phase Mapping
 
+How roadmap phases should address these pitfalls.
+
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Auth passes zero userID for channel posts (V1.1-1) | v1.1 Phase 1 — channel auth fix | Send a message from the channel; bot must respond, not reject |
-| HTTP client timeout shorter than long-poll (V1.1-2) | v1.1 Phase 1 — bot startup config | Idle for 60s; confirm zero `context deadline exceeded` in log |
-| Auth regression — private chat broken (V1.1-3) | v1.1 Phase 1 — same fix, verification | All 77+ existing tests pass; private chat messages still work after deploy |
-| IsChannelPost() misses linked channel (V1.1-4) | v1.1 Phase 1 — channel sender detection | Test with anonymous admin message; test with linked discussion group forward |
-| EndGroups scope confusion in middleware (V1.1-5) | v1.1 Phase 1 — when touching middleware chain | All existing middleware tests pass; no group 0 handlers silently skipped |
-| Bot replies into channel on auth rejection (V1.1-6) | v1.1 Phase 1 — reply guard | No "unauthorized" messages appear in the channel timeline after fix |
-| GetUpdatesOpts.Timeout reverts to 0 (V1.1-7) | v1.1 Phase 1 or 2 — config fix | Non-zero Timeout confirmed in code review; log does not show short-polling cadence |
-| Windows process tree orphaning | v1.0 Phase 1 — subprocess management | Test: stop a query, check Task Manager for orphaned claude.exe |
-| Concurrent map panic | v1.0 Phase 1 — bot structure | Test: `-race` flag + two channels sending simultaneously |
-| NSSM PATH blindness | v1.0 Phase 1 + Phase 3 | Test: run as Windows Service, not interactively |
-| editMessageText flood limit | v1.0 Phase 2 — multi-project sessions | Test: 3+ simultaneous streaming sessions, monitor for 429 |
-| Session ID stale after context limit | v1.0 Phase 1 — session wrapper | Test: mock context limit error in session handler |
-| JSON persistence corruption | v1.0 Phase 1 — persistence layer | Test: `go test -race` on concurrent save operations |
-| Goroutine leak from pipes | v1.0 Phase 1 — subprocess management | Test: pprof goroutine count across 20 stop/start cycles |
-| Long-polling offset reset | v1.0 Phase 3 — service deployment | Test: kill service mid-poll, restart, verify no duplicate processing |
+| WS-1: Reconnection storm | Phase: WebSocket client | Simulate server restart; verify exponential backoff in logs |
+| WS-2: Concurrent write panic | Phase: WebSocket client | `go test -race ./...` on connection package; stress-test with concurrent streaming |
+| WS-3: Unbounded send channel / backpressure | Phase: WebSocket client + streaming integration | Slow mock server test; verify node memory is bounded under backpressure |
+| WS-4: Session state divergence after reconnect | Phase: Protocol design (before implementation) | Kill server during active session; verify reconnect sends session status snapshot |
+| WS-5: Missing read deadline / goroutine leak | Phase: WebSocket client | Kill server TCP without FIN (firewall rule); verify node detects dead connection within pongWait |
+| MP-1: Multiple CLI instances in same directory | Phase: Session/subprocess manager design | Two concurrent commands to same project; verify serial execution via queue |
+| MP-2: Subprocess zombie on cancellation | Phase: Session/subprocess manager | Stop session mid-run; verify `claude.exe` absent from tasklist within 10s |
+| MP-3: Session ID collision | Phase: Session/subprocess manager | Two sessions complete simultaneously; verify both session IDs are independently persisted |
+| TG-1: Telegram-coupled abstractions | Phase: Telegram removal | `grep -r "chatID\|ChatID\|TelegramID" internal/` returns zero results in transport layer |
+| TG-2: Session persistence key migration | Phase: Telegram removal | Fresh v1.2 node loads existing sessions; `/status` shows correct session IDs |
+| TG-3: Removing dependency before reimplementing | Phase: Telegram removal | Audit checklist completed before `go get` removal; all middleware functionality accounted for |
 
 ---
 
 ## Sources
 
-- **gotgbot v2 source — `request.go`** (DefaultTimeout = 5s): https://github.com/PaulSonOfLars/gotgbot/blob/v2/request.go
-- **gotgbot v2 source — `bot.go`** (BotOpts, no HTTPClient field): https://github.com/PaulSonOfLars/gotgbot/blob/v2/bot.go
-- **gotgbot v2 source — `sender.go`** (Sender type, IsChannelPost, IsLinkedChannel, IsUser): https://github.com/PaulSonOfLars/gotgbot/blob/v2/sender.go
-- **gotgbot v2 middleware sample** (paired timeout pattern, Timeout:9 + RequestOpts.Timeout:10s): https://github.com/PaulSonOfLars/gotgbot/blob/v2/samples/middlewareBot/main.go
-- **gotgbot v2 ext documentation** (PollingOpts, EffectiveSender, context deadline exceeded note): https://pkg.go.dev/github.com/PaulSonOfLars/gotgbot/v2/ext
-- **Telegram Bot API — Message object** ("from" field nil for channel posts): https://core.telegram.org/bots/api#message
-- **Project codebase** — `internal/bot/middleware.go`, `internal/bot/bot.go`, `internal/bot/handlers.go`, `internal/security/validate.go`, `internal/bot/middleware_test.go` (direct read, HIGH confidence)
-- TypeScript reference implementation (`src/session.ts`, `src/handlers/streaming.ts`) — proven solutions for process tree killing, context limit detection
-- [Telegram flood limits (grammY)](https://grammy.dev/advanced/flood) — rate limit behavior documentation
-- [Telegram Bot API errors list](https://github.com/TelegramBotAPI/errors) — complete error code reference
-- [Go race detector](https://go.dev/doc/articles/race_detector) — `-race` flag for concurrent map detection
+- [gorilla/websocket concurrent write issues](https://github.com/gorilla/websocket/issues/390) — "panic: concurrent write to websocket connection" — HIGH confidence (official library issues)
+- [gorilla/websocket pkg.go.dev](https://pkg.go.dev/github.com/gorilla/websocket) — Connections support one concurrent reader and one concurrent writer — HIGH confidence
+- [coder/websocket vs gorilla comparison](https://websocket.org/guides/languages/go/) — library recommendations for new projects — MEDIUM confidence
+- [WebSocket reconnection state sync guide](https://websocket.org/guides/reconnection/) — state divergence after reconnect is the hard problem — MEDIUM confidence
+- [Backpressure in WebSocket streams](https://skylinecodes.substack.com/p/backpressure-in-websocket-streams) — unbounded buffers and OOM — MEDIUM confidence
+- [WebSocket authentication best practices](https://ably.com/blog/websocket-authentication) — token in first message, not URL — MEDIUM confidence
+- [Go graceful shutdown patterns](https://dev.to/yanev/a-deep-dive-into-graceful-shutdown-in-go-484a) — context cancellation, WaitGroup, subprocess cleanup — MEDIUM confidence
+- [Cross-platform file locking in Go](https://www.chronohq.com/blog/cross-platform-file-locking-with-go) — advisory locking between processes — MEDIUM confidence
+- [gofrs/flock](https://github.com/gofrs/flock) — thread-safe file locking for concurrent process access — MEDIUM confidence
+- [Go WebSocket 2025 forum discussion](https://forum.golangbridge.org/t/websocket-in-2025/38671) — library ecosystem current state — MEDIUM confidence
+- Codebase direct read: `internal/session/session.go`, `internal/session/store.go`, `internal/claude/process.go` — existing patterns (WaitDelay, FilteredEnv, double-checked locking) — HIGH confidence
 
 ---
-*Pitfalls research for: Go Telegram bot (gotgbot v2) — v1.1 channel auth, HTTP timeouts, middleware; v1.0 subprocess, concurrency, Windows Service*
-*Researched: 2026-03-20*
+
+*Pitfalls research for: Go WebSocket node replacing Telegram bot — multi-instance Claude CLI subprocess management*
+*Researched: 2026-03-20 (v1.2 milestone)*

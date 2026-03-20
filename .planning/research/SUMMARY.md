@@ -1,260 +1,238 @@
 # Project Research Summary
 
-**Project:** gsd-tele — Go Telegram Bot with Multi-Project Claude Code Integration
-**Domain:** Go Telegram bot with concurrent subprocess management, Windows Service deployment
-**Researched:** 2026-03-19 (v1.0); updated 2026-03-20 (v1.1 bugfixes synthesized)
+**Project:** gsd-tele — GSD Node v1.2 (WebSocket Claude CLI Orchestration Node)
+**Domain:** Go WebSocket node software — Claude CLI subprocess orchestration, multi-instance management, Windows Service deployment
+**Researched:** 2026-03-20 (v1.2 milestone; supersedes v1.0/v1.1 summary)
 **Confidence:** HIGH
 
 ## Executive Summary
 
-This project is a Go rewrite of an existing TypeScript Telegram bot, with a significant architectural upgrade: the Go version supports independent Claude Code sessions per Telegram channel (one channel = one project). The research-validated approach uses `gotgbot/v2` for Telegram long-polling, `go-cmd/cmd` for streaming subprocess management, a `sync.RWMutex`-protected `SessionStore` for concurrent session management, and `kardianos/service` for Windows Service lifecycle. State is stored in JSON files with atomic write-rename patterns; no database is needed or desirable.
+GSD Node v1.2 is a headless node process that replaces the Telegram bot interface with an outbound WebSocket connection to a central server. The core value — managing multiple Claude CLI subprocesses per project directory, streaming their NDJSON output, and persisting session IDs for resume — is already built and transport-agnostic. The transformation is architectural surgery, not a rewrite: delete the Telegram layer (`internal/bot`, `internal/handlers`), add a WebSocket layer (`internal/wsconn`, `internal/protocol`, `internal/dispatch`, `internal/node`), and update the session identity model from `channelID int64` to `instanceID string`. Everything below that seam (`internal/claude`, `internal/session`, `internal/project`, `internal/security`, `internal/audit`) survives with minimal changes. The `claude.StatusCallback` function signature is the transport seam: in v1.1 it drives Telegram API calls; in v1.2 it drives WebSocket frame sends. Neither `internal/claude` nor `internal/session` knows which transport is in use.
 
-The v1.1 milestone adds a layer of specificity: two production bugs emerged after v1.0 shipped that require targeted fixes. Channel-type auth failures reject all messages sent in a Telegram channel because `EffectiveSender.Id()` returns the channel's chat ID (a negative int64) for `ChannelPost` updates, and no channel chat ID is in the human user allowlist. Separately, the HTTP client timeout for long-polling (defaulting to 5 seconds from gotgbot's `BaseBotClient.DefaultTimeout`) is shorter than the `GetUpdatesOpts.Timeout` of 10 seconds, causing `context deadline exceeded` errors on every idle polling cycle. Both root causes are verified directly from the gotgbot v2 library source in the local module cache.
+The recommended stack is minimal by design. `github.com/coder/websocket` v1.8.14 replaces gorilla/websocket (archived 2022) for concurrent-write-safe WebSocket client operation. `github.com/cenkalti/backoff/v4` provides production-grade exponential reconnection with jitter. `encoding/json` (stdlib) handles the custom protocol. The gotgbot and openai-go dependencies are removed entirely. Net dependency change: add 2, remove 2. The identity model shifts cleanly — the server assigns a UUID per `execute` command; that UUID is the `instance_id` that tags every downstream event and session persistence record. The `StreamingState` abstraction (~350 lines of Telegram edit-in-place throttling, MarkdownV2 conversion, message ID management) is replaced by `wsStreamCallback` (~30 lines) that marshals events and calls `wsconn.Send()`.
 
-The dominant risk in v1.0 infrastructure is concurrency correctness under Windows (process tree orphaning, concurrent map panics, goroutine leaks, JSON file corruption). In v1.1, the dominant risk is regression: the channel auth fix modifies security-critical middleware, and the existing user-ID auth path must not be altered. Both v1.1 fixes are additive and surgical — no new dependencies, no architectural changes, no new production files. The HTTP timeout fix is a single-line change; the auth fix is a branching addition with corresponding new test cases.
+The dominant risks are concentrated in the WebSocket client phase and the Telegram removal phase. Concurrent writes panicking the connection, goroutine leaks from missing read deadlines, and reconnection storms are all critical-severity pitfalls that must be addressed before any dispatch or session logic is built on top. The Telegram-coupled identity types (`chatID`, `StatusCallbackFactory`) and session persistence records keyed by Telegram channel ID must be excised cleanly before the WebSocket protocol layer references them — retrofitting identity models is expensive and high-risk. Both risk clusters have clear, code-level prevention strategies documented in PITFALLS.md.
 
 ## Key Findings
 
 ### Recommended Stack
 
-Go 1.26.1 is the correct language choice for this project: native goroutines match the per-project concurrent session model, and single-binary output simplifies Windows Service deployment. The full stack is established from v1.0 with HIGH confidence on all core components. No stack changes are needed for v1.1.
+See `.planning/research/STACK.md` for full details and alternatives considered.
+
+The v1.1 stack is almost entirely preserved. The only dependency-level changes are removing `gotgbot/v2` and `openai-go` and adding `coder/websocket` and `cenkalti/backoff/v4`. Go 1.26.1, `rs/zerolog`, `golang.org/x/time/rate`, `joho/godotenv`, `encoding/json`, and `sync.RWMutex`-based state management are all unchanged. Windows Service deployment via NSSM remains unchanged.
 
 **Core technologies:**
-- **Go 1.26.1**: Runtime — latest stable; goroutines are the right concurrency model for N independent Claude sessions; single binary for Windows Service
-- **gotgbot/v2 v2.0.0-rc.34**: Telegram Bot API — auto-generated from official spec, type-safe, Bot API 9.4 support; the "rc" tag is misleading — this is the active production branch with 313 importers
-- **go-cmd/cmd v1.4.3**: Claude CLI subprocess — thread-safe streaming stdout/stderr, non-blocking async, Windows-compatible, purpose-built for this problem
-- **kardianos/service**: Windows Service — de facto standard; bakes install/uninstall/start/stop into the binary itself
-- **golang.org/x/time/rate**: Per-channel rate limiting — stdlib extension, token-bucket implementation, zero additional dependencies
-- **rs/zerolog**: Structured logging — zero-allocation performance for high-frequency streaming log lines
-- **openai/openai-go**: Whisper transcription — official OpenAI SDK since July 2024; prefer over community forks
-- **encoding/json + sync.RWMutex**: State persistence — JSON files are sufficient; no database required
+- **Go 1.26.1**: Runtime — goroutines match per-instance concurrent session model; single binary for Windows Service; `context.Context` cancellation integrates with both wsconn and subprocess management
+- **`github.com/coder/websocket` v1.8.14**: WebSocket client — concurrent-write-safe (unlike gorilla which panics), first-class context support enabling clean shutdown, zero transitive dependencies; active successor to archived gorilla/websocket
+- **`github.com/cenkalti/backoff/v4` v4.3.0**: Reconnection backoff — canonical Go implementation with jitter (prevents thundering herd), context-aware; v4 API fits existing codebase patterns (v5 has different interface, no benefit here)
+- **`encoding/json` (stdlib)**: Wire protocol — JSON text frames are debuggable with `websocat`/devtools, sufficient at Claude CLI event rates, consistent with the existing NDJSON pipeline; no binary format needed
+- **`golang.org/x/time/rate` (stdlib extension)**: Per-project rate limiting — same token-bucket implementation, now keyed by project name instead of channel ID
+- **`rs/zerolog` (unchanged)**: Structured logging — extend with `node_id`, `instance_id`, `project` fields on all instance lifecycle log entries
 
-**Critical v1.1 API facts (verified from module cache source):**
-- `BaseBotClient.DefaultTimeout` is hardcoded at 5 seconds and does not auto-scale with `GetUpdatesOpts.Timeout`
-- `RequestOpts.Timeout` nested inside `GetUpdatesOpts` is the correct and targeted override point for polling timeout
-- `Sender.IsUser()` (`Chat == nil && User != nil`) is the canonical test for human vs. non-human senders — more robust than `IsChannelPost()` alone because it also covers anonymous admins and linked-channel forwards
-- Channel IDs are large negative int64 values; user IDs are positive — they can coexist in one allowlist without collision
-
-**What NOT to use:** go-telegram-bot-api v5 (stale since 2021), SQLite/GORM (explicitly out of scope), Docker (out of scope), any HTTP router (no HTTP endpoints needed), `DefaultRequestOpts` on `BaseBotClient` for polling timeout (applies to all API calls; use per-request override instead).
+**What NOT to use:** `gorilla/websocket` (archived 2022, panics on concurrent writes), `nhooyr.io/websocket` (use the `coder/websocket` import path directly), any binary serialization format (MessagePack, Protobuf — premature optimization, loses debuggability), inbound HTTP ports or REST endpoints (violates NAT-traversal design constraint), `cenkalti/backoff/v5` (different API, no concrete benefit for this codebase).
 
 ### Expected Features
 
-The feature set splits into v1.0 launch requirements, v1.1 bugfixes (both are baseline correctness — not optional), and post-validation additions.
+See `.planning/research/FEATURES.md` for full prioritization matrix and anti-feature rationale.
 
-**Must have — table stakes (v1.0 and v1.1):**
-- Text message routing with streaming response (edit-in-place, throttled at 500ms minimum interval)
-- Multi-project channel mapping with dynamic assignment — one channel = one project = one Claude session
-- Independent Claude sessions per channel — the isolation guarantee; no context bleed between projects
-- Session lifecycle commands: `/new`, `/stop`, `/status`, `/start`, `/resume`
-- Per-channel auth (channel ID in allowlist = access; fixes v1.1 auth failure)
-- Rate limiting per channel and global across all outgoing Telegram API calls
-- Session persistence with atomic JSON writes; `/resume` with inline keyboard picker
-- Audit logging
-- GSD inline keyboard with all 19 operations
-- Contextual action buttons extracted from Claude responses
-- Windows Service deployment
-- HTTP polling timeout correctly configured (`RequestOpts.Timeout > GetUpdatesOpts.Timeout`) — v1.1 fix
-- Auth that does not reject channel post updates — v1.1 fix
+The v1.2 feature set is tightly constrained by the stated milestone goal: remove the Telegram interface entirely and replace it with a WebSocket node that can receive commands from a server and manage multiple concurrent Claude CLI instances. All P1 features are required to make the node deployable.
 
-**Should have — differentiators (post-validation):**
-- Voice transcription via OpenAI Whisper (mobile-first UX)
-- Photo analysis with 1-second album buffering
-- PDF document processing via pdftotext CLI
-- Context window progress bar (parse `context_percent` from stream-json)
-- Roadmap parsing in `/gsd` (phase progress display)
-- Token usage display in `/status`
-- ask_user MCP integration (inline keyboard for Claude clarifying questions)
+**Must have (table stakes — v1.2 launch):**
+- Outbound WebSocket connection (`wss://SERVER_URL`) with TLS — fundamental transport
+- Node registration frame on connect/reconnect: node ID, platform, project list, software version, running-instance snapshot
+- Heartbeat ping/pong every 30s with 90s read deadline enforcement — connection health and dead-connection detection
+- Automatic reconnection with exponential backoff (500ms to 30s, with jitter) — self-healing without operator intervention
+- Single writer goroutine for all outbound WebSocket frames — correctness requirement, not optional
+- Command dispatch: receive `execute` from server, resolve project path, spawn Claude CLI, stream NDJSON output back as `stream_event` frames
+- Instance ID (UUID assigned by server) included in every outgoing envelope
+- Instance lifecycle events: `instance_started`, `instance_chunk`, `instance_finished`, `instance_error`
+- Multiple simultaneous Claude instances managed via `InstanceStore` keyed by UUID
+- Kill command: terminate specific instance by ID; low complexity, high operational value
+- Graceful shutdown: drain active streams, terminate remaining subprocesses, send `disconnect` frame, exit
+- Config extension: `NODE_ID`, `WS_SERVER_URL`, `NODE_SECRET`, `MAX_INSTANCES`; remove `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`
+- Remove `internal/bot/`, `internal/handlers/` (Telegram-specific), `gotgbot/v2` dependency
 
-**Defer to v2+:**
-- Video/audio file transcription, archive extraction from documents, `/retry` command
-- Polling timeout configurable via env var (hardcoding 30s/35s is sufficient for now)
-- Channel posts as a command interface (would require `SetAllowChannel(true)` on message handlers)
+**Should have (add in v1.2.x after validation):**
+- Status query response — server can request running instance snapshot
+- Token and context usage forwarded in `instance_finished` events (already captured in `process.go`)
+- Per-project rate limiting on incoming `execute` commands
+- Streaming chunk throttle (100ms minimum interval per instance) to prevent WebSocket flood
 
-**Anti-features to avoid:** native Telegram streaming (15% commission), shared Claude sessions across channels (destroys isolation), webhook mode (requires HTTPS on Windows), Docker deployment (out of scope), global HTTP timeout increase (affects all API calls; use per-poll override only).
+**Defer to v2+:** TLS certificate pinning, node-side command timeout, Prometheus metrics endpoint, multiple server connections for HA failover, compressed WebSocket frames.
+
+**Anti-features to reject:** Inbound listening port on node (breaks NAT traversal), server-side message buffering for offline nodes (stale commands on reconnect are harmful), binary framing (premature optimization), HTTP REST fallback transport (doubles protocol surface), shared Claude sessions across projects (validated out in v1.0), node-side web dashboard (server is the management plane).
 
 ### Architecture Approach
 
-The v1.0 architecture follows a layered pipeline with strict responsibility boundaries enforced by Go's `internal/` package system. Handlers never directly touch session internals; sessions communicate with Claude processes via Go channels, not shared state. The v1.1 changes are surgical: three existing files are modified, no new files are added, and no architectural boundaries change.
+See `.planning/research/ARCHITECTURE.md` for full component decomposition, data flows, and build order.
+
+The architecture is a layer replacement. Four new internal packages are added; two are removed; five are modified or preserved. The existing session worker loop, subprocess management, path validation, audit logging, and project mapping logic are all reused without modification to their core logic. The build order is: protocol definitions (no deps) → connection manager (riskiest new infra) → session layer migration → dispatch + stream callback → node lifecycle wiring → protocol spec document.
 
 **Major components:**
-1. **gotgbot Updater + Dispatcher** — Long-poll Telegram updates; spawns one goroutine per update; no shared state
-2. **Middleware chain** — Auth (group -2), rate limit (group -1), channel-to-project resolver; all run before handlers; v1.1 auth fix is contained entirely within group -2
-3. **Handler layer** — One file per update type (text, voice, photo, document, callback, commands); handlers enqueue messages and return immediately
-4. **SessionStore** — `sync.RWMutex` + `map[int64]*Session`; each session owns a buffered message queue (capacity 5) and a worker goroutine that serializes Claude queries
-5. **Claude subprocess layer** — `go-cmd/cmd` for streaming stdout; NDJSON event parsing; `taskkill /T /F` on Windows for process tree kill
-6. **StreamingState** — Per-query ephemeral state tracking Telegram message IDs and throttle timers; discarded after query completes
-7. **Persistence layer** — Atomic write-rename for `channel-projects.json` and `session-history.json`; single `StateManager` with embedded mutex
-8. **GSD package** — Isolated roadmap parsing, command extraction, inline keyboard builder
-9. **Windows Service wrapper** — `svc/service.go` implements `svc.Handler`; wired in last without affecting application logic
+1. **`internal/node`** — lifecycle orchestrator; replaces `internal/bot`; owns wsconn, dispatch, instance store, project mappings, audit; manages startup registration, heartbeat, and graceful shutdown
+2. **`internal/wsconn`** — outbound WebSocket connection manager; reconnect loop with exponential backoff; single write goroutine draining a buffered `sendCh`; ping/pong with read deadline reset in pong handler; exposes `Send([]byte) error` safe for concurrent callers; non-blocking drop semantics for streaming events
+3. **`internal/protocol`** — wire protocol type definitions; all inbound message types (`execute`, `stop`, `new_session`, `status_request`, `project_link`) and outbound types (`node_register`, `node_status`, `stream_event`, `instance_started`, `instance_finished`, `instance_error`); `Envelope{Type, MessageID, Payload json.RawMessage}`
+4. **`internal/dispatch`** — thin command router; `switch env.Type` routing to handler methods; holds no state; delegates to InstanceStore, MappingStore, and wsconn.Send; each handler independently testable
+5. **`internal/session`** (modified) — `InstanceStore` keyed by `instanceID string` (was `channelID int64`); `Instance` struct (renamed from `Session`); Worker loop logic unchanged; `QueuedMessage` updated to use `InstanceID string` instead of `ChatID int64`
+6. **`internal/claude`** (unchanged) — subprocess management, NDJSON streaming, session ID persistence; the node's core value; untouched by this transformation
 
-**v1.1 modified files (three only):**
-- `internal/bot/bot.go` — `Start()`: add `GetUpdatesOpts.RequestOpts{Timeout: 35 * time.Second}` alongside `Timeout: 30`
-- `internal/bot/middleware.go` — `authMiddlewareWith`: use `EffectiveSender.IsUser()` to branch user-ID vs. channel-ID auth paths
-- `internal/security/validate.go` — `IsAuthorized`: treat negative channel IDs as valid principals in the allowed list
+**Key transport seam — `wsStreamCallback` replacing `StreamingState`:**
+```
+// v1.1: StreamingState drives Telegram API calls (~350 lines)
+// v1.2: wsStreamCallback drives WebSocket frame sends (~30 lines)
+func wsStreamCallback(instanceID string, cm *wsconn.ConnectionManager) claude.StatusCallback {
+    return func(event claude.ClaudeEvent) error {
+        // marshal envelope, call cm.Send(env)
+    }
+}
+```
 
 ### Critical Pitfalls
 
-**v1.0 infrastructure pitfalls (six must be addressed in Phase 1):**
+See `.planning/research/PITFALLS.md` for full prevention strategies, warning signs, and recovery costs.
 
-1. **Windows process tree orphaning** — Use `taskkill /pid <PID> /T /F` for all subprocess kills; `cmd.Process.Kill()` leaves Claude child processes running and accumulating. Gate on `runtime.GOOS == "windows"`.
+1. **Concurrent WebSocket write panic (WS-2)** — Multiple goroutines (streaming workers, heartbeat ticker) writing to the same connection simultaneously panics gorilla/websocket and corrupts coder/websocket frame streams. Prevention: establish the single-writer goroutine (write-pump) pattern in `internal/wsconn` before wiring any Claude streaming output. Validate with `go test -race ./...` and a concurrent-streaming stress test.
 
-2. **Concurrent map panic on SessionStore** — Wrap `channelID -> session` map in a struct with `sync.RWMutex` from day one. Run all tests with `-race`. Manifests immediately in multi-session production use.
+2. **Missing read deadline causes goroutine leak on dead connection (WS-5)** — Without a read deadline, the read goroutine blocks forever when the server disappears silently (NAT timeout, crash without FIN). Node appears connected but sends no heartbeats; goroutine count grows on each reconnect. Prevention: set read deadline to `pingInterval + 10s`; reset it in the pong handler. Address in WebSocket client phase before any other phase builds on it.
 
-3. **Goroutine leak from uncleaned subprocess pipes** — Set `WaitDelay` on every `exec.Cmd` (available since Go 1.20); use `CommandContext` with timeout. Without this, killed subprocess pipes leave goroutines blocked indefinitely.
+3. **Session state divergence after reconnect (WS-4)** — On reconnect, the server receives a registration frame with no knowledge of what was running before disconnect. It may dispatch duplicate commands to already-running instances. Prevention: include a running-instance snapshot in the registration frame; design this into the protocol in Phase 1 before implementing the WebSocket client. This is a protocol contract, not an implementation detail.
 
-4. **JSON persistence file corruption** — Use atomic write-rename: marshal to temp file, `os.Rename` to target (atomic on Windows NTFS). Direct `os.WriteFile` in a goroutine-concurrent environment will corrupt files on crash.
+4. **Multiple Claude CLI instances writing to the same working directory (MP-1)** — Claude CLI does not use file locking. Concurrent subprocesses in the same directory corrupt `.claude/` session state, causing `--resume` failures. Prevention: "multiple instances per project" means multiple logical sessions queued serially via the existing per-instance `queue` channel — not truly parallel subprocesses in the same directory.
 
-5. **editMessageText rate limit causing full bot blackout** — Telegram rate limits are per-bot, not per-chat. With N simultaneous streaming sessions, edit rate multiplies by N. Implement a single global API call rate limiter; parse `retry_after` from 429 responses.
-
-6. **Service PATH blindness** — Windows Service account has a stripped PATH. Resolve all external binary paths at startup via explicit env vars (`CLAUDE_CLI_PATH`, etc.); log resolved paths at startup.
-
-**v1.1 bugfix pitfalls:**
-
-7. **Auth regression — private chat users broken by channel fix** — Implement as an additive branch (`if sender.IsUser() ... else ...`); never restructure the existing user-ID check. Run all existing `TestMiddlewareAuth*` tests before merging. Failing existing tests is the hard regression gate.
-
-8. **Non-user sender detection too narrow (`IsChannelPost()` only)** — Use `!sender.IsUser()` as the universal gate. `IsChannelPost()` misses anonymous admins and linked-channel forwards, both of which also have nil `User` fields. `IsUser()` catches all three cases with one check.
-
-9. **HTTP timeout set globally instead of per-poll** — Use `RequestOpts` nested inside `GetUpdatesOpts`, not `DefaultRequestOpts` on `BaseBotClient`. Global timeout affects `sendMessage` and `editMessage`, which should fail fast. Only the polling loop needs the extended timeout.
-
-10. **Operator config gap after auth fix** — After the code fix, operators must add their channel's numeric ID to `TELEGRAM_ALLOWED_USERS` in `.env`. The deployment checklist and `.env.example` must document this explicitly.
+5. **Telegram-coupled identity types leaking into new protocol (TG-1 + TG-2)** — `chatID int64` in `QueuedMessage`, `StatusCallbackFactory` taking a Telegram chat ID, and `sessions.json` keyed by channel ID all create Telegram coupling. Prevention: perform the identity model redesign (`channelID int64 → instanceID string`, `channelID int64 → projectName string`) as the first step of Telegram removal, with a migration script for `sessions.json`. Do this before building the WebSocket dispatch layer.
 
 ## Implications for Roadmap
 
-The build order is constrained by dependencies. Infrastructure must precede features; single-project must precede multi-project; application logic must precede service wrapping. The v1.1 fixes are a discrete pre-phase that gates further feature work.
+The dependency graph from ARCHITECTURE.md and the pitfall-to-phase mapping from PITFALLS.md both point to the same build order: protocol definitions first (unblocks everything, zero risk), connection manager second (riskiest new infrastructure, must be validated in isolation), Telegram removal and session migration third (identity model must be clean before dispatch references it), dispatch fourth, node lifecycle wiring fifth, spec document last.
 
-### Phase 0 (v1.1): Production Bugfixes
+### Phase 1: Protocol Definitions and Config Foundation
 
-**Rationale:** Two live production failures must be resolved before continuing feature development. Both fixes are well-understood with HIGH-confidence root causes. Fixing them first clears the log noise and auth failures that would complicate testing of any new feature work.
+**Rationale:** `internal/protocol/messages.go` defines all message types and is a dependency of every subsequent phase. `internal/config/config.go` adds WebSocket fields and removes Telegram fields. Neither change has any runtime risk — no external dependencies, no behavior change. This phase also bakes in the session-snapshot-on-reconnect requirement (WS-4 prevention) before any implementation begins.
 
-**Sub-phase ordering:** HTTP timeout fix first (one line, no regression risk, clears log noise); channel auth fix second (logic change, security-critical, requires new tests).
+**Delivers:** All message struct definitions (`Envelope`, `execute`, `node_register`, `stream_event`, `instance_finished`, etc.); round-trip marshal/unmarshal tests for all message types; updated config with new env vars; the protocol spec artifact that defines the server contract.
 
-**Delivers:** Elimination of `context deadline exceeded` log spam; channel messages passing auth; no behavior change for existing private-chat users.
+**Addresses:** Command dispatch, registration, heartbeat, lifecycle events — by defining their wire format before anyone implements them.
 
-**Addresses pitfalls:** V1.1-1 (channel auth), V1.1-2 (HTTP timeout), V1.1-3 (auth regression), V1.1-4 (sender type detection coverage), V1.1-5 (operator config documentation).
+**Avoids:** WS-4 (session divergence after reconnect) — the registration message includes running-instance snapshot in the struct from day one, not retrofitted later.
 
-**Avoids:** Restructuring the existing user-ID auth path; increasing `GetUpdatesOpts.Timeout` without a matching `RequestOpts.Timeout`; setting global HTTP timeout on `BaseBotClient`.
+### Phase 2: WebSocket Connection Manager
 
-**Research flag:** No additional research needed. Both root causes verified directly from gotgbot source. Canonical fix patterns documented in STACK.md and ARCHITECTURE.md.
+**Rationale:** This is the riskiest new infrastructure. `internal/wsconn` must be built and validated in isolation before anything depends on it. Establishing the single-writer goroutine pattern and reconnect loop first prevents the two highest-severity pitfalls (WS-2 concurrent write panic, WS-5 goroutine leak) from propagating into dispatch or session logic. A working `ConnectionManager` with a mock server test is the gate for all downstream phases.
 
-### Phase 1: Core Infrastructure and Claude Subprocess
+**Delivers:** `ConnectionManager` with dial loop, exponential backoff (coder/websocket + cenkalti/backoff/v4), read goroutine, write goroutine with `sendCh chan []byte`, ping/pong with read deadline reset in pong handler, bounded channel with drop-on-full semantics for streaming events. Mock server tests for reconnect, send serialization, and dead-connection detection.
 
-**Rationale:** Everything depends on this. Config parsing, atomic JSON persistence, the Claude subprocess wrapper (with correct pipe cleanup and Windows process tree kill), the SessionStore (with mutex), and session state machine are all load-bearing. No feature works without them being correct.
+**Uses:** `github.com/coder/websocket` v1.8.14, `github.com/cenkalti/backoff/v4` v4.3.0, existing `context.Context` cancellation pattern.
 
-**Delivers:** A bot that can start, send a message to Claude, stream the response back to one Telegram channel, and stop cleanly. Windows Service can run interactively with PATH resolution logged.
+**Avoids:** WS-1 (reconnection storm — exponential backoff with jitter from day one), WS-2 (concurrent write panic — single-writer goroutine), WS-3 (unbounded send channel OOM — bounded channel, drop-on-full), WS-5 (goroutine leak — read deadline + pong handler).
 
-**Addresses:** Text message handler, streaming response, session persistence, `/start`/`/new`/`/stop`/`/status` commands, per-channel auth, rate limiting, audit logging.
+### Phase 3: Telegram Removal and Session Layer Migration
 
-**Avoids:** Pitfalls 1 (process tree), 2 (concurrent map), 3 (goroutine leak), 4 (JSON corruption), 6 (context limit detection), 7 (PATH blindness).
+**Rationale:** The identity model must be cleaned up before the WebSocket dispatch layer references it. Carrying `chatID int64` into v1.2 dispatch code creates Telegram coupling that is expensive to remove after tests are written against it. This phase performs the clean-break refactor: delete `internal/bot`, delete Telegram-specific handlers, remove `gotgbot/v2` from `go.mod`, migrate `SessionStore → InstanceStore` (key: `string`), update `QueuedMessage`, audit all middleware functionality, and write the `sessions.json` migration script.
 
-**Research flag:** Standard patterns — well-documented Go subprocess and concurrency patterns. Architecture file covers everything needed. Skip research-phase.
+**Delivers:** Codebase with zero Telegram imports in the transport layer; `InstanceStore` keyed by `instanceID string`; `sessions.json` migration from channel-ID keys to project-name keys; audit checklist of all middleware functionality (rate limiting, auth, audit logging, dispatch ordering) with v1.2 equivalents verified.
 
-### Phase 2: Multi-Project Session Management
+**Avoids:** TG-1 (Telegram types in protocol layer), TG-2 (persistence key migration breaking session resume), TG-3 (removing dependency before reimplementing all functionality it enabled).
 
-**Rationale:** Multi-project isolation is the core value proposition. It builds directly on Phase 1's SessionStore. The Telegram rate limit risk from concurrent streaming sessions (Pitfall 5) must be addressed before shipping.
+### Phase 4: Dispatch and Stream Callback
 
-**Delivers:** Multiple Telegram channels routing to independent Claude sessions with no context bleed. Channel registration flow (unknown channel prompts for project path link). GSD inline keyboard with all 19 operations and contextual action button extraction.
+**Rationale:** With protocol types defined (Phase 1), wsconn working (Phase 2), and session layer migrated (Phase 3), dispatch is straightforward. A `switch` on envelope type routes to handler methods. `wsStreamCallback` (~30 lines) replaces `StreamingState` (~350 lines). Each handler is independently unit-testable with mock stores.
 
-**Addresses:** Multi-project channel mapping, dynamic project-channel assignment, independent sessions per channel, GSD workflow integration, contextual action buttons, `/resume` with picker, roadmap parsing in `/gsd`.
+**Delivers:** `internal/dispatch.Dispatcher` with handlers for `execute`, `stop`, `new_session`, `status_request`, `project_link`, `project_unlink`; `wsStreamCallback` function; path validation via existing `security.ValidatePath`; per-project rate limiting via existing `security.RateLimiter` (keyed by project name); unit tests per command type with mock InstanceStore and mock wsconn.
 
-**Avoids:** Pitfall 5 (rate limit flood across sessions); shared-session anti-pattern; global-user-allowlist anti-pattern.
+**Implements:** Dispatch component from architecture; StatusCallback transport bridge pattern; security validation at the dispatch layer.
 
-**Research flag:** GSD command extraction and keyboard builder logic may benefit from a targeted research pass on the GSD framework's current command structure and `/gsd:*` pattern parsing.
+**Avoids:** MP-1 (concurrent writes to same project directory) — `handleExecute` routes through the per-instance queue, not a direct subprocess spawn.
 
-### Phase 3: Media Handlers and Windows Service Deployment
+### Phase 5: Node Lifecycle and End-to-End Wiring
 
-**Rationale:** Media handlers are independent of each other and all build on the core text handler pipeline from Phase 1. Windows Service wrapping is last because it requires the full bot to be functional for meaningful lifecycle testing.
+**Rationale:** With all components built and tested in isolation, `internal/node` wires them together. Update `main.go` to instantiate `Node` instead of `Bot`. End-to-end verification against a local mock server confirms the full pipeline: registration → execute → stream_event → instance_finished → disconnect.
 
-**Delivers:** Voice transcription (OpenAI Whisper), photo analysis with album buffering, PDF processing (pdftotext), Windows Service install/uninstall/start/stop via NSSM with correct PATH configuration.
+**Delivers:** `internal/node.Node` struct wiring wsconn + dispatch + instance store + mapping store + audit + heartbeat; startup sequence (load config → start wsconn → send registration → start heartbeat → block on OS signal); graceful shutdown (cancel context → wait for workers → kill remaining processes → send disconnect frame → exit). Updated `main.go`. Full "looks done but isn't" checklist verification (concurrent write test, dead-connection detection, backpressure test, clean shutdown verification).
 
-**Addresses:** Voice messages, photo analysis, PDF document processing, Windows Service deployment, long-polling offset handling on service stop/restart.
+**Avoids:** MP-2 (subprocess zombie on cancellation) — shutdown verifies `claude.exe` absent from `tasklist` within 10s; MP-3 (session ID collision on concurrent completion) — per-instance session ID storage confirmed.
 
-**Avoids:** Pitfall 8 (offset reset on service restart); pdftotext PATH issues; NSSM environment variable configuration gaps.
+### Phase 6: Protocol Spec and Server Interface Document
 
-**Research flag:** Windows Service deployment via NSSM with explicit PATH configuration may need a targeted research pass on NSSM environment variable configuration for service accounts.
+**Rationale:** Writing the wire protocol spec after the node is working means the spec reflects the actual implementation, not a pre-implementation guess. The server repo needs this document to implement the server side.
 
-### Phase 4: Enhanced Features and Polish
-
-**Rationale:** These features add value but have no architectural dependencies that require them before Phase 3. They can be added after the core bot is validated in production.
-
-**Delivers:** Context window progress bar, token usage in `/status`, ask_user MCP integration, `/retry` command, adaptive streaming throttle based on active session count.
-
-**Avoids:** ask_user JSON file polling in a hot loop (use in-memory channel instead).
-
-**Research flag:** ask_user MCP integration likely needs a research-phase pass — MCP server configuration and the JSON file polling protocol are not well-documented in standard sources.
+**Delivers:** Wire protocol spec (all message types, Envelope format, authentication handshake sequence, sequencing guarantees, reconnect behavior); server interface spec (what WebSocket endpoint and message sequences the server must expose). These are deliverables for the server repo, not code.
 
 ### Phase Ordering Rationale
 
-- **Bugfixes before features:** Live production failures block confidence in any feature work built on top
-- **Infrastructure before features:** Concurrent map panic and goroutine leak pitfalls crash production; correct infrastructure is not optional
-- **Single-project before multi-project:** Verifying the core Claude streaming pipeline with one session is far easier to debug than building multi-project isolation simultaneously
-- **Application logic before service wrapper:** The Windows Service wrapping is a thin lifecycle layer; testing it requires the full bot working first
-- **Media handlers are independent:** Voice, photo, and PDF handlers do not depend on each other and can be sequenced within Phase 3 in any order
+- Protocol first: zero-risk, high-value, unblocks every other phase; the session-state-on-reconnect field is designed in, not bolted on.
+- Connection manager second: riskiest new infrastructure; validating it in isolation prevents WS-1, WS-2, WS-3, and WS-5 from propagating into higher layers.
+- Telegram removal third: the identity model must be clean before dispatch builds against it; this is the pitfall research's most emphatic finding about retrofit cost.
+- Dispatch fourth: can only be built once all three prior phases are stable; each handler is then independently testable.
+- Node lifecycle fifth: pure wiring of already-validated components; the risk in this phase is integration, not any individual component.
+- Spec document last: reflects reality, not intention; the server team has a working reference implementation to test against.
 
 ### Research Flags
 
-Needs `/gsd:research-phase` during planning:
-- **Phase 2 (GSD integration):** Claude response parsing for `/gsd:*` command extraction and contextual button rendering; GSD command structure needs verification against current framework state
-- **Phase 3 (Windows Service PATH):** NSSM environment variable configuration for service accounts running user-installed tools; configuration details are sparse in official NSSM docs
-- **Phase 4 (ask_user MCP):** The ask_user JSON file protocol, MCP server configuration format, and lifecycle under the Go bot model are not covered by standard documentation
+Phases likely needing deeper research during planning:
 
-Standard patterns (skip research-phase):
-- **Phase 0 (v1.1 bugfixes):** Root causes verified from gotgbot source. Fix patterns fully specified in STACK.md and ARCHITECTURE.md.
-- **Phase 1 (Core infrastructure):** Go subprocess management, `sync.RWMutex`, `bufio.Scanner`, atomic file writes — all well-documented stdlib patterns
-- **Phase 3 (Media handlers):** OpenAI Whisper API, pdftotext CLI, photo album buffering — standard patterns with high-quality official documentation
+- **Phase 2 (WebSocket Connection Manager):** The coder/websocket API details for read deadline management, ping/pong handler registration, and graceful close sequences should be verified against the library source before writing connection lifecycle code. Edge cases in the reconnect loop (context cancellation during backoff sleep, connection drop during handshake, half-open TCP) warrant specific test case design.
+- **Phase 3 (Telegram Removal):** The middleware functionality audit (rate limiting, audit logging, auth, dispatch ordering) requires a line-by-line read of `internal/bot/middleware.go` and all handler files before any deletion begins. The audit checklist is the gate for safe removal.
+
+Phases with standard patterns (skip research-phase):
+
+- **Phase 1 (Protocol + Config):** Defining Go structs and updating env parsing; no unknowns.
+- **Phase 4 (Dispatch):** A `switch` statement routing to handler methods; the simplest possible dispatch mechanism; direct template in existing `internal/bot/middleware.go`.
+- **Phase 5 (Node Lifecycle):** Wiring well-understood components with `context.Context` cancellation and `sync.WaitGroup`; the existing `internal/bot` is the direct structural template.
+- **Phase 6 (Spec Document):** Writing prose documentation from working code; no research needed.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All core libraries verified via official sources (pkg.go.dev, GitHub, module cache). v1.1 API details verified directly from gotgbot source files. |
-| Features | HIGH | v1.0 functional spec derived from existing TypeScript codebase. v1.1 bug behaviors observed in production and root-caused against official Telegram Bot API spec and gotgbot source. |
-| Architecture | HIGH | v1.0 derived from TypeScript codebase as functional spec. v1.1 changes verified by reading gotgbot library source in local module cache and existing bot source files directly. |
-| Pitfalls | HIGH | Most pitfalls verified against official Go issue tracker, library docs, and existing codebase. v1.1 pitfalls derived from live production failures and source verification. |
+| Stack | HIGH | Core libraries verified against pkg.go.dev and GitHub releases with specific version numbers confirmed. coder/websocket v1.8.14 (Sep 2025) and cenkalti/backoff v4.3.0 (Jan 2024) both verified. Library alternatives evaluated with sourced rationale. |
+| Features | HIGH | v1.2 feature set is tightly constrained by the existing codebase (direct read) and stated milestone goals. Feature dependency graph is deterministic. Anti-feature rationale is consistent across all three research documents. |
+| Architecture | HIGH | Architecture derived primarily from direct codebase read (v1.1, ~11,600 lines Go). Component boundaries, data flow, and the StatusCallback transport seam are verified against actual code. Build order reflects real dependency graph with no assumed dependencies. |
+| Pitfalls | HIGH (WebSocket), HIGH (Telegram removal), MEDIUM (multi-instance concurrent subprocess) | WebSocket pitfalls verified against official library docs and GitHub issues. Telegram removal pitfalls derived from direct codebase read. The MP-1 concurrent-directory severity depends on server dispatch behavior — if the server serializes per-project, the risk is lower than if it sends concurrent commands to the same project. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Operator config documentation:** The v1.1 channel auth fix requires operators to add their channel's numeric ID to `TELEGRAM_ALLOWED_USERS`. This is a deployment gap, not a code gap. The `.env.example` file and task plan for the auth fix must document this explicitly.
-- **AllowChannel policy decision:** FEATURES.md identifies whether channel posts should be routed as commands (vs. filtered out) as a product decision. The recommended policy (filter out `ChannelPost` updates; the bot does not receive channel posts as commands) should be confirmed before Phase 0 begins.
-- **kardianos/service Windows 11 edge cases:** 137 open issues; core functionality is stable (MEDIUM confidence on edge cases). Relevant for Phase 3; test service install/uninstall/start/stop on the actual target machine early.
-- **NSSM environment variable configuration:** How NSSM passes environment to services and whether `%USERPROFILE%` paths resolve for the service account needs hands-on verification in Phase 3.
-- **GSD framework current command structure:** The 19 GSD commands referenced in FEATURES.md are based on the framework state as of research date. The keyboard builder must match the current framework; read `.claude/commands/gsd/` during Phase 2 planning.
-- **ask_user MCP JSON file protocol:** Exact format, file path conventions, and lifecycle are not documented in public sources. Inspect the existing TypeScript `src/handlers/callback.ts` as the functional spec during Phase 4 planning.
+- **Server authentication handshake sequence:** `NODE_SECRET` is defined in config, but the exact protocol for sending it (first frame content, server ACK format, timeout for unauthenticated connections) is not fully specified. This must be pinned down during Phase 1 protocol design or coordinated with the server team before Phase 2 begins. The pitfall research recommends sending auth in the first protocol message after connection, not in the WebSocket URL.
+
+- **Actual server dispatch semantics for concurrent instances:** The MP-1 pitfall (concurrent Claude CLI processes in same directory) assumes the server may send concurrent `execute` commands to the same project. If the server serializes per-project dispatch, the per-directory queue is redundant but harmless. If not, the queue is the sole protection. Clarify the server's intended dispatch behavior before finalizing the `handleExecute` implementation in Phase 4.
+
+- **`MAX_INSTANCES` rejection handling:** When the node rejects an `execute` command with `instance_error{reason:"node at capacity"}`, the server must handle the error response. Confirm the server's retry or queueing strategy before shipping Phase 5 — dropped commands are a silent failure mode without this alignment.
+
+- **coder/websocket read deadline API:** The pitfall research identifies the pattern (set deadline, reset in pong handler) using gorilla/websocket method names. The coder/websocket API for setting read deadlines may differ. Verify the exact method names on `*websocket.Conn` at the start of Phase 2 planning.
+
+- **Session persistence migration for existing data:** The `sessions.json` migration from channel-ID keys to project-name keys requires `mappings.json` as the lookup table. This is straightforward for projects that have channel mappings, but any sessions for channels without a corresponding mapping entry will be unrecoverable. A migration script must handle this gracefully (skip unmappable entries, log what was lost) and be tested on a copy of production data before the first v1.2 deployment.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Existing TypeScript codebase (`src/session.ts`, `src/handlers/`, `src/config.ts`) — functional specification for Go rewrite
-- `~/go/pkg/mod/github.com/!paul!son!of!lars/gotgbot/v2@v2.0.0-rc.34/request.go` — `DefaultTimeout = 5s`, `BaseBotClient`, `getTimeoutContext` verified (v1.1)
-- `~/go/pkg/mod/github.com/!paul!son!of!lars/gotgbot/v2@v2.0.0-rc.34/sender.go` — `GetSender`, `Id()`, `IsUser()`, `IsChannelPost()` methods verified (v1.1)
-- `~/go/pkg/mod/github.com/!paul!son!of!lars/gotgbot/v2@v2.0.0-rc.34/ext/context.go` — `NewContext` switch, sender population for `ChannelPost` case verified (v1.1)
-- `~/go/pkg/mod/github.com/!paul!son!of!lars/gotgbot/v2@v2.0.0-rc.34/ext/updater.go` — `PollingOpts` timeout documentation comment verified (v1.1)
-- `internal/bot/middleware.go`, `internal/bot/bot.go`, `internal/security/validate.go` — existing source read directly (v1.1)
-- [gotgbot middleware sample on GitHub v2 branch](https://github.com/PaulSonOfLars/gotgbot/blob/v2/samples/middlewareBot/main.go) — canonical `Timeout: 9` + `RequestOpts: 10s` pattern confirmed
-- [Telegram Bot API — Message object](https://core.telegram.org/bots/api#message) — `from` field documented as optional for channel posts
-- [gotgbot v2 pkg.go.dev](https://pkg.go.dev/github.com/PaulSonOfLars/gotgbot/v2) — updater/dispatcher model, Bot API 9.4 support, published Feb 17, 2026
-- [Go downloads page](https://go.dev/dl/) — go1.26.1 confirmed latest stable as of March 2026
-- [go-cmd/cmd GitHub](https://github.com/go-cmd/cmd) — v1.4.3, thread-safe subprocess streaming, 100% test coverage, Windows support
-- [openai/openai-go GitHub](https://github.com/openai/openai-go) — official SDK since July 2024
-- [kardianos/service GitHub](https://github.com/kardianos/service) — Windows XP+ service support, de facto standard
-- [golang.org/x/time/rate pkg.go.dev](https://pkg.go.dev/golang.org/x/time/rate) — token bucket rate limiter
-- [Go race detector](https://go.dev/doc/articles/race_detector) — concurrent map detection tooling
+- Existing codebase direct read (`internal/claude/process.go`, `internal/session/session.go`, `internal/session/store.go`, `internal/bot/middleware.go`, `internal/bot/bot.go`) — architecture patterns, existing interfaces, subprocess management, session persistence, rate limiting implementation
+- [gotgbot v2 pkg.go.dev](https://pkg.go.dev/github.com/PaulSonOfLars/gotgbot/v2@v2.0.0-rc.34) — v1.1 API verification (Sender struct, BaseBotClient, PollingOpts)
+- [gotgbot GitHub v2 branch](https://github.com/PaulSonOfLars/gotgbot) — `sender.go`, `request.go`, `ext/context.go`, middleware sample
+- [coder/websocket pkg.go.dev](https://pkg.go.dev/github.com/coder/websocket) — v1.8.14 published Sep 5, 2025
+- [coder/websocket GitHub releases](https://github.com/coder/websocket/releases) — v1.8.14 release date confirmed
+- [cenkalti/backoff v4 pkg.go.dev](https://pkg.go.dev/github.com/cenkalti/backoff/v4) — v4.3.0, published Jan 2, 2024
+- [Go downloads page](https://go.dev/dl/) — Go 1.26.1 confirmed latest stable as of March 2026
+- [gorilla/websocket concurrent write issues](https://github.com/gorilla/websocket/issues/390) — WS-2 pitfall: "panic: concurrent write to websocket connection"
+- [Go blog: Pipelines and cancellation](https://go.dev/blog/pipelines) — concurrency patterns (official Go blog)
 
 ### Secondary (MEDIUM confidence)
-- [mymmrac/telego GitHub](https://github.com/mymmrac/telego) — alternative Telegram library comparison (Bot API 9.5 support)
-- [alexei-led/ccgram](https://github.com/alexei-led/ccgram) — competitor analysis: topic-based multi-session, voice transcription patterns
-- [RichardAtCT/claude-code-telegram](https://github.com/RichardAtCT/claude-code-telegram) — competitor analysis: conversational + terminal modes, git integration
-- [betterstack Go logging comparison](https://betterstack.com/community/guides/logging/best-golang-logging-libraries/) — zerolog performance benchmarks
-- [Telegram flood limits (grammY)](https://grammy.dev/advanced/flood) — rate limit behavior documentation
-- [Killing child processes in Go](https://medium.com/@felixge/killing-a-child-process-and-all-of-its-children-in-go-54079af94773) — process group kill patterns
-- [Long Polling — Telegram.Bot .NET guide](https://telegrambots.github.io/book/3/updates/polling.html) — HTTP client timeout must exceed getUpdates timeout (cross-library confirmation)
-- [kardianos/service vs NSSM comparison](https://paulbradley.dev/go-windows-service/) — deployment tradeoffs
+- [websocket.org Go guide](https://websocket.org/guides/languages/go/) — coder/websocket vs gorilla comparison; concurrent write safety
+- [websocket.org reconnection guide](https://websocket.org/guides/reconnection/) — WS-4 state divergence after reconnect
+- [Ably: WebSocket architecture best practices](https://ably.com/topic/websocket-architecture-best-practices) — heartbeat and backpressure patterns
+- [Ably: WebSocket authentication](https://ably.com/blog/websocket-authentication) — token-in-first-message vs URL parameter
+- [cenkalti/backoff v5 pkg.go.dev](https://pkg.go.dev/github.com/cenkalti/backoff/v5) — v5 API comparison; confirmed different from v4
+- [Go Forum WebSocket 2025](https://forum.golangbridge.org/t/websocket-in-2025/38671) — community consensus on library choice
+- [Martin Fowler: Heartbeat Pattern](https://martinfowler.com/articles/patterns-of-distributed-systems/heartbeat.html) — heartbeat interval and timeout standards
+- [betterstack Go logging comparison](https://betterstack.com/community/guides/logging/best-golang-logging-libraries/) — zerolog performance rationale
+- [Backpressure in WebSocket streams](https://skylinecodes.substack.com/p/backpressure-in-websocket-streams) — WS-3 pitfall: unbounded buffer and OOM
+- [Go graceful shutdown patterns](https://dev.to/yanev/a-deep-dive-into-graceful-shutdown-in-go-484a) — context cancellation, WaitGroup, subprocess cleanup
 
 ### Tertiary (LOW confidence)
-- NSSM environment variable configuration for service accounts — not verified from primary source; needs hands-on testing in Phase 3
-- ask_user MCP JSON file protocol — inferred from TypeScript callback handler; not documented in public sources
+- [dasroot.net: Best Practices for Multi-Agent Workflows in Go (2026)](https://dasroot.net/posts/2026/03/best-practices-multi-agent-workflows-go/) — directional reference for multi-agent patterns only
+- [DEV: JSON vs MessagePack vs Protobuf benchmarks](https://dev.to/devflex-pro/json-vs-messagepack-vs-protobuf-in-go-my-real-benchmarks-and-what-they-mean-in-production-48fh) — serialization tradeoff directional rationale
 
 ---
-*Research completed: 2026-03-19 (v1.0), updated 2026-03-20 (v1.1 bugfixes)*
+*Research completed: 2026-03-20 (v1.2 — WebSocket node transformation)*
+*Supersedes: v1.0 summary (2026-03-19) and v1.1 summary (2026-03-20)*
 *Ready for roadmap: yes*

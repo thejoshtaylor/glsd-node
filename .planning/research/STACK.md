@@ -1,7 +1,7 @@
 # Stack Research
 
 **Domain:** Go Telegram bot — multi-project Claude CLI manager, Windows Service deployment
-**Researched:** 2026-03-19 (updated 2026-03-20 for v1.1 bugfixes)
+**Researched:** 2026-03-19 (updated 2026-03-20 for v1.1 bugfixes; updated 2026-03-20 for v1.2 WebSocket node additions)
 **Confidence:** HIGH (core stack), MEDIUM (supporting libraries)
 
 ## Recommended Stack
@@ -372,5 +372,227 @@ No dependency changes. Both fixes are pure configuration/logic changes to existi
 
 ---
 
+## v1.2 Addendum: WebSocket Node Communication, Multi-Instance Management, Custom Protocol
+
+*Added 2026-03-20. Focused scope: only what is new for v1.2 — Telegram removal, WebSocket client, multiple Claude CLI instances per project, protocol serialization.*
+
+This milestone removes Telegram entirely and replaces it with a custom WebSocket-based protocol. The node connects outbound to a central server; the server manages multiple nodes. Each node manages multiple projects; each project can run multiple simultaneous Claude CLI instances.
+
+### What Does NOT Change
+
+The following are validated in v1.0/v1.1 and require no new libraries:
+
+- `claude.Process` — subprocess spawning and NDJSON streaming (os/exec, already in use)
+- `session.Session` — the goroutine-per-session worker model (channels + sync.Mutex, stdlib)
+- `rs/zerolog` — structured logging (stays, log zerolog fields through websocket events)
+- `joho/godotenv` — config loading (stays)
+- `golang.org/x/time/rate` — rate limiting (stays, now per-instance instead of per-channel)
+- `encoding/json` — JSON persistence for project state (stays)
+- Windows Service via NSSM (stays — the node still runs as a service)
+
+### New Capability 1: WebSocket Client
+
+**Recommended: `github.com/coder/websocket` v1.8.14**
+
+| Attribute | Detail |
+|-----------|--------|
+| Version | v1.8.14 (published September 5, 2025) |
+| Import | `github.com/coder/websocket` |
+| Confidence | HIGH — verified via pkg.go.dev and coder/websocket GitHub releases |
+
+**Why coder/websocket over gorilla/websocket:**
+
+gorilla/websocket was archived in late 2022 and is no longer maintained. Starting a new project on an archived dependency creates long-term maintenance risk with no upside. coder/websocket (formerly nhooyr.io/websocket, adopted by Coder in 2024) is the active successor. Key advantages for this use case:
+
+- First-class `context.Context` support — all read/write operations accept context, enabling clean shutdown via the existing `context.WithCancel` pattern already used throughout the codebase
+- Safe concurrent writes — multiple goroutines (one per Claude instance streaming output) can write to the websocket without external locking. gorilla/websocket panics on concurrent writes; this project will have many concurrent streamers.
+- Zero dependencies beyond stdlib — does not pull in HTTP frameworks or other transitive deps
+- Dial from client (outbound connection) is the primary use case: `websocket.Dial(ctx, serverURL, nil)`
+
+**Integration with existing zerolog:**
+
+```go
+// Existing pattern (no change):
+log.Info().Str("project", proj).Msg("starting instance")
+
+// New websocket events follow same pattern:
+log.Info().Str("addr", serverAddr).Msg("websocket connected")
+log.Warn().Err(err).Int("attempt", n).Msg("websocket reconnect")
+```
+
+**Why not golang.org/x/net/websocket:** This is the original x/net implementation and is explicitly not recommended by the Go team for production — it predates modern WebSocket protocol requirements and lacks context support.
+
+### New Capability 2: Reconnection with Exponential Backoff
+
+**Recommended: `github.com/cenkalti/backoff/v4` v4.3.0**
+
+| Attribute | Detail |
+|-----------|--------|
+| Version | v4.3.0 (published January 2, 2024) |
+| Import | `github.com/cenkalti/backoff/v4` |
+| Confidence | HIGH — verified via pkg.go.dev |
+
+**Why backoff/v4 not v5:**
+
+v5 (v5.0.3, July 2025) introduces generics and a new `RetryOption` API — a different interface from v4. The existing codebase uses no generics-reliant patterns, and v4's `WithContext(NewExponentialBackOff(), ctx)` API is a direct fit for the reconnect loop. v5 is appropriate for new projects starting from scratch; adding it here means learning a new API for no concrete benefit.
+
+**Why not implement backoff manually:** The exponential-with-jitter algorithm has subtle correctness requirements (jitter prevents thundering herd when many nodes reconnect simultaneously). cenkalti/backoff is the canonical Go implementation (imported by thousands of projects), context-aware, and 12 lines to wire up. Manual implementation is error-prone with no upside.
+
+**Reconnect loop pattern (integrates with coder/websocket + existing context pattern):**
+
+```go
+bo := backoff.WithContext(backoff.NewExponentialBackOff(), ctx)
+
+operation := func() error {
+    conn, _, err := websocket.Dial(ctx, serverURL, nil)
+    if err != nil {
+        log.Warn().Err(err).Msg("websocket dial failed, will retry")
+        return err
+    }
+    defer conn.CloseNow()
+    return runConnection(ctx, conn) // returns error on disconnect
+}
+
+if err := backoff.Retry(operation, bo); err != nil {
+    log.Error().Err(err).Msg("websocket connection failed permanently")
+}
+```
+
+Default ExponentialBackOff: starts at 500ms, multiplies by 1.5, caps at 60s, adds random jitter — appropriate for a node reconnecting to a server.
+
+**Why not recws or gowscl:** These are small single-maintainer libraries wrapping gorilla/websocket (archived). They provide reconnect logic but tie you to an unmaintained dependency. Better to compose coder/websocket + cenkalti/backoff directly — both are well-maintained and the total API surface is small.
+
+### New Capability 3: Multi-Instance Claude CLI Management
+
+**Recommended: stdlib only (`sync`, `context`, `os/exec`)**
+
+No new library is needed. The existing `session.Session` worker model (one goroutine per session, queue channel for serialization) already handles this correctly. The extension for multiple instances per project is:
+
+- A registry mapping `projectID -> []instanceID -> *session.Session` using `sync.RWMutex`
+- Instance IDs are UUIDs or sequential integers assigned at creation
+- Each instance is an independent `session.Session` with its own goroutine, queue, and Claude subprocess
+- The registry struct replaces what was previously `MappingStore` (project-to-channel)
+
+**Why `sync.RWMutex` over `sync.Map`:** The instance registry has frequent writes (instances created and destroyed as commands run) alongside reads. `sync.Map` is optimized for mostly-read workloads with disjoint key sets; for a small registry with frequent mutations, `map + sync.RWMutex` gives better performance and clearer code.
+
+**Pattern:**
+
+```go
+type InstanceRegistry struct {
+    mu        sync.RWMutex
+    instances map[string]map[string]*session.Session // projectID -> instanceID -> session
+}
+```
+
+This pattern is already validated in the codebase — `session.Store` uses the same idiom.
+
+### New Capability 4: Protocol Serialization
+
+**Recommended: `encoding/json` (stdlib)**
+
+For the custom node-server protocol, JSON over WebSocket text frames is the right choice.
+
+**Why JSON over MessagePack or Protobuf:**
+
+- The node-server protocol is not high-frequency. Commands arrive (send a message to Claude), responses stream back (events from the Claude subprocess). The bottleneck is Claude CLI latency (seconds), not serialization overhead (microseconds). Binary format optimization is premature.
+- Protobuf requires a `.proto` schema, `protoc` compiler, and generated Go code — significant toolchain overhead for a protocol owned by one team across two repos. Schema changes require regeneration.
+- MessagePack offers no meaningful benefit over JSON for this payload size/frequency; it loses human readability and debuggability with no measurable gain.
+- JSON text frames are directly inspectable with browser devtools, `websocat`, or any terminal — invaluable during protocol development.
+- The codebase already uses `encoding/json` throughout (NDJSON parsing from claude CLI, JSON file persistence). Zero new concepts for contributors.
+
+**Protocol envelope pattern (no new library):**
+
+```go
+type Message struct {
+    Type    string          `json:"type"`
+    ID      string          `json:"id,omitempty"`
+    Payload json.RawMessage `json:"payload,omitempty"`
+}
+```
+
+`json.RawMessage` for payload defers type-specific parsing to the handler, avoiding a two-pass decode.
+
+**When to reconsider:** If the server serves web browsers directly (binary frames save bandwidth) or throughput exceeds thousands of messages per second (unlikely for Claude CLI output). Neither applies here.
+
+### New Capability 5: Heartbeat / Health Reporting
+
+**Recommended: stdlib (`time.Ticker`, `context`).**
+
+coder/websocket has built-in ping/pong support via `conn.Ping(ctx)`. No additional library is needed.
+
+**Pattern:**
+
+```go
+ticker := time.NewTicker(30 * time.Second)
+defer ticker.Stop()
+for {
+    select {
+    case <-ctx.Done():
+        return
+    case <-ticker.C:
+        if err := conn.Ping(ctx); err != nil {
+            return err // triggers reconnect loop
+        }
+        // Optionally send application-level heartbeat with node status
+        sendStatus(conn, ctx, nodeStatus())
+    }
+}
+```
+
+The ping/pong mechanism detects dead connections (half-open TCP, server restart). Application-level status messages (heartbeat with active instance count, project list) give the server observability without a separate health endpoint.
+
+### What NOT to Add for v1.2
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| gorilla/websocket | Archived 2022, no maintenance, concurrent write panics | coder/websocket |
+| golang.org/x/net/websocket | Not recommended by Go team for production, no context support | coder/websocket |
+| Socket.IO Go client | Go has no canonical Socket.IO equivalent; adds HTTP/polling complexity | coder/websocket + custom protocol |
+| cenkalti/backoff/v5 | New generic API is a different interface from v4; no benefit for this use case | cenkalti/backoff/v4 |
+| nhooyr.io/websocket | Redirect to coder/websocket — use the coder import path directly | github.com/coder/websocket |
+| MessagePack (vmihailenco/msgpack) | No measurable benefit at this payload frequency; loses debuggability | encoding/json |
+| Protobuf | Schema overhead, code generation toolchain, premature optimization | encoding/json |
+| HTTP REST endpoints | Node connects outbound via WebSocket; no inbound port needed; keeps firewall-friendly design intact | WebSocket only |
+| Worker pool libraries (pond, ants) | Instance count is bounded (projects x max-per-project); goroutine-per-instance is simpler and sufficient | Goroutine per session.Session instance |
+| Redis / message queue | No distributed deployment; single node process manages its own instances locally | In-process channels |
+
+### v1.2 Installation Changes
+
+```bash
+# NEW: WebSocket client
+go get github.com/coder/websocket
+
+# NEW: Reconnection backoff
+go get github.com/cenkalti/backoff/v4
+
+# REMOVE: Telegram library (no longer needed)
+# go get github.com/PaulSonOfLars/gotgbot/v2  ← remove from go.mod
+
+# REMOVE: OpenAI (voice transcription was Telegram-specific)
+# go get github.com/openai/openai-go  ← remove from go.mod if no other use
+```
+
+Net change: add 2 dependencies, remove 2. go.mod stays lean.
+
+### v1.2 Version Compatibility
+
+| Package | Version | Compatible With | Notes |
+|---------|---------|-----------------|-------|
+| github.com/coder/websocket | v1.8.14 | Go 1.21+ | Published Sep 5, 2025; actively maintained by Coder; concurrent write safe |
+| github.com/cenkalti/backoff/v4 | v4.3.0 | Go 1.13+ | Published Jan 2, 2024; stable v4; v5 exists but different API |
+
+### v1.2 Sources
+
+- [coder/websocket pkg.go.dev](https://pkg.go.dev/github.com/coder/websocket) — v1.8.14, published Sep 5, 2025 (HIGH confidence — official docs)
+- [coder/websocket GitHub releases](https://github.com/coder/websocket/releases) — v1.8.14 release date Sep 6, 2025 confirmed (HIGH confidence)
+- [websocket.org Go guide](https://websocket.org/guides/languages/go/) — coder/websocket recommendation over gorilla/websocket, concurrent write safety, context support rationale (HIGH confidence)
+- [cenkalti/backoff v4 pkg.go.dev](https://pkg.go.dev/github.com/cenkalti/backoff/v4) — v4.3.0, published Jan 2, 2024 (HIGH confidence — official docs)
+- [cenkalti/backoff v5 pkg.go.dev](https://pkg.go.dev/github.com/cenkalti/backoff/v5) — v5.0.3, published Jul 23, 2025; generic API confirmed different from v4 (HIGH confidence — official docs)
+- [Go Forum WebSocket 2025 discussion](https://forum.golangbridge.org/t/websocket-in-2025/38671) — community consensus on coder/websocket (MEDIUM confidence)
+- [DEV: JSON vs MessagePack vs Protobuf benchmarks](https://dev.to/devflex-pro/json-vs-messagepack-vs-protobuf-in-go-my-real-benchmarks-and-what-they-mean-in-production-48fh) — serialization tradeoffs (MEDIUM confidence)
+- Codebase reading: `internal/claude/process.go`, `internal/session/session.go` — confirmed existing patterns for subprocess management and goroutine-per-session model (HIGH confidence — direct code inspection)
+
+---
+
 *Stack research for: Go Telegram bot with multi-project Claude CLI management, Windows Service deployment*
-*Researched: 2026-03-19, updated 2026-03-20 for v1.1 bugfixes*
+*Researched: 2026-03-19, updated 2026-03-20 for v1.1 bugfixes, updated 2026-03-20 for v1.2 WebSocket node additions*
