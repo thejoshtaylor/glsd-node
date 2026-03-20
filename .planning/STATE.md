@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Custom Webapp
-status: active
-stopped_at: Roadmap created — Phase 10 ready to plan
-last_updated: "2026-03-20T22:00:00.000Z"
+status: unknown
+stopped_at: Completed 10-01-PLAN.md — protocol message types and Envelope
+last_updated: "2026-03-20T23:10:30.331Z"
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
 ---
 
 # Project State
@@ -19,16 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Run and orchestrate multiple Claude Code instances across projects from a central server, with each node managing its own local Claude sessions independently.
-**Current focus:** Phase 10 — Protocol Definitions and Config
+**Current focus:** Phase 10 — protocol-definitions-and-config
 
 ## Current Position
 
-Phase: 10 of 14 (Protocol Definitions and Config)
-Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-03-20 — v1.2 roadmap created; 5 phases (10-14), 30 requirements mapped
-
-Progress: [░░░░░░░░░░] 0% (v1.2)
+Phase: 10 (protocol-definitions-and-config) — EXECUTING
+Plan: 2 of 2
 
 ## Accumulated Context
 
@@ -41,6 +37,9 @@ Progress: [░░░░░░░░░░] 0% (v1.2)
 - [v1.2]: Use `coder/websocket` — not gorilla (archived 2022, panics on concurrent writes)
 - [v1.2]: Single writer goroutine for all WebSocket sends — correctness requirement, not optional
 - [v1.2]: Deliver protocol spec + server backend spec as documentation deliverables
+- [Phase 10]: RunningInstances field on NodeRegister has no omitempty tag — guarantees [] not null when empty
+- [Phase 10]: Envelope.Payload is json.RawMessage — dispatch on Type before decoding avoids allocating unknown structs
+- [Phase 10]: protocol package uses stdlib only (encoding/json) — no external dependencies
 
 ### Pending Todos
 
@@ -61,6 +60,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-20
-Stopped at: Roadmap created — ready to plan Phase 10
+Last session: 2026-03-20T23:10:30.326Z
+Stopped at: Completed 10-01-PLAN.md — protocol message types and Envelope
 Resume file: None

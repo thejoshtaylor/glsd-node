@@ -18,8 +18,8 @@ Requirements for the custom webapp milestone. Each maps to roadmap phases.
 
 ### Protocol
 
-- [ ] **PROTO-01**: Node sends registration frame on connect: node_id (hardware-derived), platform, project list, version
-- [ ] **PROTO-02**: Message envelope format: `type` + `id` + JSON payload for all frames
+- [x] **PROTO-01**: Node sends registration frame on connect: node_id (hardware-derived), platform, project list, version
+- [x] **PROTO-02**: Message envelope format: `type` + `id` + JSON payload for all frames
 - [ ] **PROTO-03**: Node receives and ACKs `run` commands before execution begins
 - [ ] **PROTO-04**: Node receives and handles `kill` commands to terminate specific instances
 - [ ] **PROTO-05**: Node receives and responds to `status` queries with running instance list
@@ -90,8 +90,8 @@ Deferred to v1.2.x or later. Tracked but not in current roadmap.
 | XPORT-04 | Phase 11 | Pending |
 | XPORT-05 | Phase 11 | Pending |
 | XPORT-06 | Phase 11 | Pending |
-| PROTO-01 | Phase 10 | Pending |
-| PROTO-02 | Phase 10 | Pending |
+| PROTO-01 | Phase 10 | Complete |
+| PROTO-02 | Phase 10 | Complete |
 | PROTO-03 | Phase 13 | Pending |
 | PROTO-04 | Phase 13 | Pending |
 | PROTO-05 | Phase 13 | Pending |
