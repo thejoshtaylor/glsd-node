@@ -34,6 +34,11 @@ func (b *Bot) registerHandlers(dispatcher *ext.Dispatcher) {
 	// --- Text message handler ---
 	dispatcher.AddHandler(handlers.NewMessage(message.Text, b.handleText))
 
+	// --- Media message handlers ---
+	dispatcher.AddHandler(handlers.NewMessage(message.Voice, b.handleVoice))
+	dispatcher.AddHandler(handlers.NewMessage(message.Photo, b.handlePhoto))
+	dispatcher.AddHandler(handlers.NewMessage(message.Document, b.handleDocument))
+
 	// --- Command handlers ---
 	dispatcher.AddHandler(handlers.NewCommand("start", b.handleStart))
 	dispatcher.AddHandler(handlers.NewCommand("new", b.handleNew))
@@ -45,6 +50,21 @@ func (b *Bot) registerHandlers(dispatcher *ext.Dispatcher) {
 
 	// --- Callback query handler ---
 	dispatcher.AddHandler(handlers.NewCallback(callbackquery.All, b.handleCallback))
+}
+
+// handleVoice is the bot-layer wrapper that calls the handlers.HandleVoice function.
+func (b *Bot) handleVoice(tgBot *gotgbot.Bot, ctx *ext.Context) error {
+	return bothandlers.HandleVoice(tgBot, ctx, b.store, b.cfg, b.auditLog, b.persist, b.WaitGroup(), b.mappings, b.globalAPILimiter)
+}
+
+// handlePhoto is the bot-layer wrapper that calls the handlers.HandlePhoto function.
+func (b *Bot) handlePhoto(tgBot *gotgbot.Bot, ctx *ext.Context) error {
+	return bothandlers.HandlePhoto(tgBot, ctx, b.store, b.cfg, b.auditLog, b.persist, b.WaitGroup(), b.mappings, b.globalAPILimiter)
+}
+
+// handleDocument is the bot-layer wrapper that calls the handlers.HandleDocument function.
+func (b *Bot) handleDocument(tgBot *gotgbot.Bot, ctx *ext.Context) error {
+	return bothandlers.HandleDocument(tgBot, ctx, b.store, b.cfg, b.auditLog, b.persist, b.WaitGroup(), b.mappings, b.globalAPILimiter)
 }
 
 // handleText is the bot-layer wrapper that calls the handlers.HandleText function.
