@@ -6,6 +6,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/rs/zerolog/log"
 
 	"github.com/user/gsd-tele-go/internal/audit"
 	"github.com/user/gsd-tele-go/internal/security"
@@ -24,6 +25,11 @@ type RateLimitChecker interface {
 	Allow(channelID int64) (bool, time.Duration)
 }
 
+// ChannelAuthFn checks whether a channel is authorized by looking up its admins.
+// Returns true if any admin's user ID is in the allowed-users list.
+// This function is called on cache miss; the middleware handles caching.
+type ChannelAuthFn func(tgBot *gotgbot.Bot, channelID int64) bool
+
 // defaultAuthChecker wraps security.IsAuthorized with the bot's AllowedUsers list.
 type defaultAuthChecker struct {
 	allowedUsers []int64
@@ -38,17 +44,57 @@ func (a *defaultAuthChecker) IsAuthorized(userID int64, channelID int64) bool {
 // channelID for Phase 2 forward-compatibility.
 func (b *Bot) authMiddleware(next ext.Handler) ext.Handler {
 	checker := &defaultAuthChecker{allowedUsers: b.cfg.AllowedUsers}
-	return authMiddlewareWith(checker, b.auditLog, next)
+	cache := security.NewChannelAuthCache(15 * time.Minute)
+	channelAuthFn := func(tgBot *gotgbot.Bot, channelID int64) bool {
+		if tgBot == nil {
+			return false
+		}
+		if authorized, hit := cache.Lookup(channelID); hit {
+			return authorized
+		}
+		admins, err := tgBot.GetChatAdministrators(channelID, nil)
+		if err != nil {
+			log.Warn().Err(err).Int64("channel_id", channelID).Msg("channel admin lookup failed")
+			cache.Store(channelID, false)
+			return false
+		}
+		for _, member := range admins {
+			user := member.GetUser()
+			for _, allowed := range b.cfg.AllowedUsers {
+				if user.Id == allowed {
+					cache.Store(channelID, true)
+					return true
+				}
+			}
+		}
+		cache.Store(channelID, false)
+		return false
+	}
+	return authMiddlewareWith(checker, channelAuthFn, b.auditLog, next)
 }
 
 // authMiddlewareWith is the testable implementation of authMiddleware.
-func authMiddlewareWith(checker AuthChecker, auditLog *audit.Logger, next ext.Handler) ext.Handler {
+func authMiddlewareWith(checker AuthChecker, channelAuth ChannelAuthFn, auditLog *audit.Logger, next ext.Handler) ext.Handler {
 	return &middlewareHandler{
 		name: "auth",
 		check: func(_ *gotgbot.Bot, ctx *ext.Context) bool {
 			return true // run for all updates
 		},
 		handle: func(tgBot *gotgbot.Bot, ctx *ext.Context) error {
+			// Echo filter: drop bot's own reflected channel posts (AUTH-02).
+			if sender := ctx.EffectiveSender; sender != nil {
+				// Check if sender is this bot (reflected channel post).
+				if sender.User != nil && sender.User.IsBot && tgBot != nil && sender.User.Id == tgBot.Id {
+					log.Debug().Int64("bot_id", tgBot.Id).Msg("echo filtered: bot's own channel post")
+					return ext.EndGroups
+				}
+				// Check if sender is a linked channel automatic forward.
+				if sender.IsLinkedChannel() {
+					log.Debug().Msg("echo filtered: automatic forward from linked channel")
+					return ext.EndGroups
+				}
+			}
+
 			var userID int64
 			if ctx.EffectiveSender != nil {
 				userID = ctx.EffectiveSender.Id()
@@ -60,6 +106,13 @@ func authMiddlewareWith(checker AuthChecker, auditLog *audit.Logger, next ext.Ha
 			}
 
 			if !checker.IsAuthorized(userID, channelID) {
+				// Channel post fallback: authorize via admin lookup (AUTH-01).
+				if ctx.EffectiveSender != nil && ctx.EffectiveSender.IsChannelPost() && channelAuth != nil {
+					if channelAuth(tgBot, channelID) {
+						return next.HandleUpdate(tgBot, ctx)
+					}
+				}
+
 				// Log the rejection.
 				if auditLog != nil {
 					ev := audit.NewEvent("auth_rejected", userID, channelID)
