@@ -48,7 +48,13 @@ Plans:
   3. Project-channel mappings survive a bot restart — channels reattach to their Claude sessions automatically
   4. User can tap /gsd and see all GSD operations as categorized inline keyboard buttons; tapping any button sends the correct command to Claude
   5. Claude responses containing /gsd: commands or numbered options render as tappable inline keyboard buttons in the Telegram message
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — MappingStore (channel-project JSON persistence) + GSD pure functions (operations table, regex extractors, roadmap parser)
+- [ ] 02-02-PLAN.md — Multi-project HandleText, /project command, per-project WorkerConfig, workerStarted, restoreSessions
+- [ ] 02-03-PLAN.md — GSD /gsd command, callback routing extension, response button extraction, global API rate limiter, ask_user MCP
+- [ ] 02-04-PLAN.md — Integration test suite + human verification checkpoint
 
 ### Phase 3: Media Handlers and Windows Service
 **Goal**: Users can send voice messages, photos, and PDFs to any project channel and the bot processes them correctly; the bot installs as a Windows Service and starts at boot
@@ -69,5 +75,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Bot Infrastructure | 8/8 | Complete   | 2026-03-20 |
-| 2. Multi-Project and GSD Integration | 0/TBD | Not started | - |
+| 2. Multi-Project and GSD Integration | 0/4 | Not started | - |
 | 3. Media Handlers and Windows Service | 0/TBD | Not started | - |
