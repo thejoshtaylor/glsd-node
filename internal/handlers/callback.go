@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/time/rate"
 
 	"github.com/user/gsd-tele-go/internal/claude"
@@ -150,7 +152,7 @@ func HandleCallback(b *gotgbot.Bot, ctx *ext.Context, store *session.SessionStor
 		return err
 
 	case callbackActionGsd:
-		return handleCallbackGsd(b, chatID, msgID, payload, store, mappings, cfg, wg, globalLimiter)
+		return handleCallbackGsd(b, chatID, msgID, payload, store, mappings, cfg, persist, wg, globalLimiter)
 
 	case callbackActionGsdRun:
 		if msgID != 0 {
@@ -159,7 +161,7 @@ func HandleCallback(b *gotgbot.Bot, ctx *ext.Context, store *session.SessionStor
 				MessageId: msgID,
 			})
 		}
-		return enqueueGsdCommand(b, chatID, payload, store, mappings, cfg, wg, globalLimiter)
+		return enqueueGsdCommand(b, chatID, payload, store, mappings, cfg, persist, wg, globalLimiter)
 
 	case callbackActionGsdFresh:
 		// Fresh session: clear session ID before enqueueing.
@@ -172,10 +174,10 @@ func HandleCallback(b *gotgbot.Bot, ctx *ext.Context, store *session.SessionStor
 				MessageId: msgID,
 			})
 		}
-		return enqueueGsdCommand(b, chatID, payload, store, mappings, cfg, wg, globalLimiter)
+		return enqueueGsdCommand(b, chatID, payload, store, mappings, cfg, persist, wg, globalLimiter)
 
 	case callbackActionGsdPhase:
-		return handleCallbackGsdPhase(b, chatID, msgID, payload, store, mappings, cfg, wg, globalLimiter)
+		return handleCallbackGsdPhase(b, chatID, msgID, payload, store, mappings, cfg, persist, wg, globalLimiter)
 
 	case callbackActionOption:
 		// Send the option key (e.g. "1", "A") directly to Claude.
@@ -185,10 +187,10 @@ func HandleCallback(b *gotgbot.Bot, ctx *ext.Context, store *session.SessionStor
 				MessageId: msgID,
 			})
 		}
-		return enqueueGsdCommand(b, chatID, payload, store, mappings, cfg, wg, globalLimiter)
+		return enqueueGsdCommand(b, chatID, payload, store, mappings, cfg, persist, wg, globalLimiter)
 
 	case callbackActionAskUser:
-		return handleCallbackAskUser(b, chatID, msgID, payload, store, mappings, cfg, wg, globalLimiter)
+		return handleCallbackAskUser(b, chatID, msgID, payload, store, mappings, cfg, persist, wg, globalLimiter)
 
 	case callbackActionProjectChange:
 		awaitingPath.Set(chatID)
@@ -222,7 +224,8 @@ func HandleCallback(b *gotgbot.Bot, ctx *ext.Context, store *session.SessionStor
 // Otherwise, send the GSD command to Claude.
 func handleCallbackGsd(b *gotgbot.Bot, chatID, msgID int64, key string,
 	store *session.SessionStore, mappings *project.MappingStore,
-	cfg *config.Config, wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
+	cfg *config.Config, persist *session.PersistenceManager,
+	wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
 
 	// Check if this operation needs a phase picker first.
 	if prefix, ok := PhasePickerOps[key]; ok {
@@ -252,14 +255,15 @@ func handleCallbackGsd(b *gotgbot.Bot, chatID, msgID int64, key string,
 			MessageId: msgID,
 		})
 	}
-	return enqueueGsdCommand(b, chatID, op.Command, store, mappings, cfg, wg, globalLimiter)
+	return enqueueGsdCommand(b, chatID, op.Command, store, mappings, cfg, persist, wg, globalLimiter)
 }
 
 // handleCallbackGsdPhase parses a phase-specific callback like "gsd-exec:2"
 // and maps it to the full command "/gsd:execute-phase 2".
 func handleCallbackGsdPhase(b *gotgbot.Bot, chatID, msgID int64, data string,
 	store *session.SessionStore, mappings *project.MappingStore,
-	cfg *config.Config, wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
+	cfg *config.Config, persist *session.PersistenceManager,
+	wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
 
 	// Map callback prefix to GSD command.
 	prefixToCmd := map[string]string{
@@ -293,7 +297,7 @@ func handleCallbackGsdPhase(b *gotgbot.Bot, chatID, msgID int64, data string,
 			MessageId: msgID,
 		})
 	}
-	return enqueueGsdCommand(b, chatID, fullCmd, store, mappings, cfg, wg, globalLimiter)
+	return enqueueGsdCommand(b, chatID, fullCmd, store, mappings, cfg, persist, wg, globalLimiter)
 }
 
 // askUserRequest is the JSON structure written by the ask_user MCP tool.
@@ -308,7 +312,8 @@ type askUserRequest struct {
 // and sends the selected option text to Claude.
 func handleCallbackAskUser(b *gotgbot.Bot, chatID, msgID int64, payload string,
 	store *session.SessionStore, mappings *project.MappingStore,
-	cfg *config.Config, wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
+	cfg *config.Config, persist *session.PersistenceManager,
+	wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
 
 	// Payload format: "{request_id}:{option_index}"
 	colonIdx := strings.Index(payload, ":")
@@ -362,7 +367,7 @@ func handleCallbackAskUser(b *gotgbot.Bot, chatID, msgID int64, payload string,
 	_ = os.Remove(tmpFile)
 
 	// Send the selected option to Claude.
-	return enqueueGsdCommand(b, chatID, selectedText, store, mappings, cfg, wg, globalLimiter)
+	return enqueueGsdCommand(b, chatID, selectedText, store, mappings, cfg, persist, wg, globalLimiter)
 }
 
 // enqueueGsdCommand looks up the project mapping for the channel, gets or creates
@@ -372,7 +377,8 @@ func handleCallbackAskUser(b *gotgbot.Bot, chatID, msgID int64, payload string,
 // This is used by all GSD/option/askuser callbacks to send text to Claude.
 func enqueueGsdCommand(b *gotgbot.Bot, chatID int64, text string,
 	store *session.SessionStore, mappings *project.MappingStore,
-	cfg *config.Config, wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
+	cfg *config.Config, persist *session.PersistenceManager,
+	wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
 
 	mapping, hasMapped := mappings.Get(chatID)
 	if !hasMapped {
@@ -381,6 +387,10 @@ func enqueueGsdCommand(b *gotgbot.Bot, chatID int64, text string,
 	}
 
 	sess := store.GetOrCreate(chatID, mapping.Path)
+
+	capturedText := text
+	capturedChatID := chatID
+	capturedMapping := mapping
 
 	// Start worker if not already started.
 	if !sess.WorkerStarted() {
@@ -392,6 +402,22 @@ func enqueueGsdCommand(b *gotgbot.Bot, chatID int64, text string,
 				AllowedPaths: []string{mapping.Path},
 				SafetyPrompt: config.BuildSafetyPrompt([]string{mapping.Path}),
 				FilteredEnv:  config.FilteredEnv(),
+				OnQueryComplete: func(sessionID string) {
+					title := capturedText
+					if len(title) > 50 {
+						title = title[:50]
+					}
+					saved := session.SavedSession{
+						SessionID:  sessionID,
+						SavedAt:    time.Now().UTC().Format(time.RFC3339),
+						WorkingDir: capturedMapping.Path,
+						Title:      title,
+						ChannelID:  capturedChatID,
+					}
+					if err := persist.Save(saved); err != nil {
+						log.Warn().Err(err).Msg("Failed to persist GSD session")
+					}
+				},
 			}
 			s.Worker(context.Background(), cfg.ClaudeCLIPath, wCfg)
 		}(sess)

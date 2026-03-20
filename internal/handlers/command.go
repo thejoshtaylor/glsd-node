@@ -322,7 +322,7 @@ func HandleProject(b *gotgbot.Bot, ctx *ext.Context, mappings *project.MappingSt
 // HandleGsd handles the /gsd command.
 // With a direct command (e.g. "/gsd:execute-phase 2"), routes to the session.
 // Without an argument, shows the GSD keyboard with project status header.
-func HandleGsd(b *gotgbot.Bot, ctx *ext.Context, mappings *project.MappingStore, store *session.SessionStore, cfg *config.Config, wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
+func HandleGsd(b *gotgbot.Bot, ctx *ext.Context, mappings *project.MappingStore, store *session.SessionStore, cfg *config.Config, persist *session.PersistenceManager, wg *sync.WaitGroup, globalLimiter *rate.Limiter) error {
 	chatID := ctx.EffectiveChat.Id
 	text := ctx.EffectiveMessage.Text
 
@@ -332,7 +332,7 @@ func HandleGsd(b *gotgbot.Bot, ctx *ext.Context, mappings *project.MappingStore,
 		if !strings.HasPrefix(directCmd, "/") {
 			directCmd = "/" + directCmd
 		}
-		return enqueueGsdCommand(b, chatID, directCmd, store, mappings, cfg, wg, globalLimiter)
+		return enqueueGsdCommand(b, chatID, directCmd, store, mappings, cfg, persist, wg, globalLimiter)
 	}
 
 	// Show GSD keyboard.
