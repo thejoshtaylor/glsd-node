@@ -11,7 +11,7 @@ Build a Go-native Telegram bot that controls Claude Code across multiple project
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Core Bot Infrastructure** - Single-channel bot that sends text to Claude and streams the response back, with all safety and persistence infrastructure correct (completed 2026-03-20)
-- [ ] **Phase 2: Multi-Project and GSD Integration** - Multiple independent Claude sessions across channels with full GSD workflow keyboard
+- [x] **Phase 2: Multi-Project and GSD Integration** - Multiple independent Claude sessions across channels with full GSD workflow keyboard (completed 2026-03-20)
 - [ ] **Phase 3: Media Handlers and Windows Service** - Voice, photo, PDF processing and Windows Service deployment
 
 ## Phase Details
@@ -48,7 +48,7 @@ Plans:
   3. Project-channel mappings survive a bot restart — channels reattach to their Claude sessions automatically
   4. User can tap /gsd and see all GSD operations as categorized inline keyboard buttons; tapping any button sends the correct command to Claude
   5. Claude responses containing /gsd: commands or numbered options render as tappable inline keyboard buttons in the Telegram message
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 02-01-PLAN.md — MappingStore (channel-project JSON persistence) + GSD pure functions (operations table, regex extractors, roadmap parser)
@@ -75,5 +75,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Bot Infrastructure | 8/8 | Complete   | 2026-03-20 |
-| 2. Multi-Project and GSD Integration | 3/4 | In Progress|  |
+| 2. Multi-Project and GSD Integration | 4/4 | Complete   | 2026-03-20 |
 | 3. Media Handlers and Windows Service | 0/TBD | Not started | - |
