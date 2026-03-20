@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 02-02-PLAN.md (Multi-project routing + MappingStore wiring)
-last_updated: "2026-03-20T02:50:30.604Z"
+stopped_at: Completed 02-03-PLAN.md (GSD keyboard UX, callback routing, rate limiter)
+last_updated: "2026-03-20T03:01:00Z"
 progress:
   total_phases: 3
   completed_phases: 1
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 ## Current Position
 
 Phase: 02 (multi-project-and-gsd-integration) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Plan: 2 of 4
 | Phase 01 P09 | 8 | 2 tasks | 2 files |
 | Phase 02 P01 | 5 | 2 tasks | 4 files |
 | Phase 02 P02 | 6 | 2 tasks | 7 files |
+| Phase 02 P03 | 9 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,9 @@ Phase 2, Plan 1 (MappingStore + GSD pure functions):
 - [Phase 02]: [Phase 02-02]: workerStarted bool field on Session replaces StartedAt heuristic — more reliable single-start guard for Worker goroutine
 - [Phase 02]: [Phase 02-02]: mapping.Path used as WorkingDir in OnQueryComplete — ties PersistenceManager per-WorkingDir trimming to per-project isolation
 - [Phase 02]: [Phase 02-02]: HandleResume filters sessions to mapping.Path when hasMapped; falls back to all channel sessions if no mapping (graceful degradation)
+- [Phase 02]: [Phase 02-03]: callbackWg package-level var tracks callback-spawned workers; bot-level WaitGroup tracks text-path workers (callbacks only enqueue to existing workers)
+- [Phase 02]: [Phase 02-03]: waitForRateLimit() uses 5s timeout context before each Telegram API call — drops edit on timeout (shutdown safety, not error)
+- [Phase 02]: [Phase 02-03]: HandleGsd accepts wg param for API consistency but ignores it — enqueueGsdCommand manages its own goroutine lifecycle for callbacks
 
 ### Pending Todos
 
@@ -128,6 +132,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T02:50:30.598Z
-Stopped at: Completed 02-02-PLAN.md (Multi-project routing + MappingStore wiring)
+Last session: 2026-03-20T03:01:00Z
+Stopped at: Completed 02-03-PLAN.md (GSD keyboard UX, callback routing, rate limiter)
 Resume file: None

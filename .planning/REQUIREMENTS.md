@@ -57,11 +57,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### GSD Integration
 
-- [ ] **GSD-01**: `/gsd` command presents all GSD operations as categorized inline keyboard menus
+- [x] **GSD-01**: `/gsd` command presents all GSD operations as categorized inline keyboard menus
 - [x] **GSD-02**: Bot extracts GSD slash commands from Claude responses and renders as tappable buttons
 - [x] **GSD-03**: Bot extracts numbered options from Claude responses and renders as tappable buttons
 - [x] **GSD-04**: Bot displays roadmap phase progress inline when showing GSD status
-- [ ] **GSD-05**: ask_user MCP integration — Claude can present clarifying questions via inline keyboard
+- [x] **GSD-05**: ask_user MCP integration — Claude can present clarifying questions via inline keyboard
 
 ### Media Handling
 
@@ -145,11 +145,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERS-01 | Phase 1 | Complete |
 | PERS-02 | Phase 1 | Complete |
 | PERS-03 | Phase 1 | Complete |
-| GSD-01 | Phase 2 | Pending |
+| GSD-01 | Phase 2 | Complete |
 | GSD-02 | Phase 2 | Complete |
 | GSD-03 | Phase 2 | Complete |
 | GSD-04 | Phase 2 | Complete |
-| GSD-05 | Phase 2 | Pending |
+| GSD-05 | Phase 2 | Complete |
 | MEDIA-01 | Phase 3 | Pending |
 | MEDIA-02 | Phase 3 | Pending |
 | MEDIA-03 | Phase 3 | Pending |
