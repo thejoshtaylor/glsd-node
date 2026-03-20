@@ -44,11 +44,13 @@ Plans:
   2. A message sent in an unauthorized channel is rejected without the bot posting a visible rejection message into the channel timeline
   3. The bot does not process its own messages reflected back as ChannelPost updates (no echo loop)
   4. Private-chat and group messages from authorized human users continue to pass auth without any behavior change
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 09-01-PLAN.md — Add echo filter, channel auth via admin lookup with cache
 
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 8. Polling Stability | v1.1 | 1/1 | Complete | 2026-03-20 |
-| 9. Channel Auth | v1.1 | 0/TBD | Not started | - |
+| 9. Channel Auth | v1.1 | 0/1 | Not started | - |
