@@ -6,14 +6,26 @@ package connection
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/user/gsd-tele-go/internal/config"
 	"github.com/user/gsd-tele-go/internal/protocol"
 )
+
+// generateMsgID returns a cryptographically random 16-byte hex string for use
+// as a message ID in outbound envelopes.
+func generateMsgID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // ErrStopped is returned by Send() after Stop() has been called.
 var ErrStopped = errors.New("connection manager stopped")
@@ -26,27 +38,36 @@ var ErrStopped = errors.New("connection manager stopped")
 // (XPORT-06). Callers submit frames via Send(); the writer goroutine drains
 // sendCh and calls conn.Write exclusively.
 type ConnectionManager struct {
-	cfg        *config.NodeConfig
-	log        zerolog.Logger
-	sendCh     chan []byte            // buffered 64; writer goroutine owns draining
-	recvCh     chan *protocol.Envelope // buffered 64; Phase 13 dispatcher reads from this
-	stopCh     chan struct{}           // closed by Stop() to signal shutdown
-	stopped    chan struct{}           // closed by dialLoop when it exits
-	cancel     context.CancelFunc     // cancels the child context passed to dialLoop
-	httpClient *http.Client           // nil uses default; set in tests for TLS cert trust
+	cfg               *config.NodeConfig
+	log               zerolog.Logger
+	sendCh            chan []byte             // buffered 64; writer goroutine owns draining
+	recvCh            chan *protocol.Envelope // buffered 64; Phase 13 dispatcher reads from this
+	stopCh            chan struct{}            // closed by Stop() to signal shutdown
+	stopped           chan struct{}            // closed by dialLoop when it exits
+	cancel            context.CancelFunc      // cancels the child context passed to dialLoop
+	httpClient        *http.Client            // nil uses default; set in tests for TLS cert trust
+	heartbeatInterval time.Duration           // defaults to cfg.HeartbeatIntervalSecs; overridable in tests
+	stopOnce          sync.Once               // prevents double-close of stopCh
 }
 
 // NewConnectionManager creates and returns a ConnectionManager. Call Start()
 // to begin dialing and Stop() for clean shutdown.
 func NewConnectionManager(cfg *config.NodeConfig, log zerolog.Logger) *ConnectionManager {
 	return &ConnectionManager{
-		cfg:     cfg,
-		log:     log,
-		sendCh:  make(chan []byte, 64),
-		recvCh:  make(chan *protocol.Envelope, 64),
-		stopCh:  make(chan struct{}),
-		stopped: make(chan struct{}),
+		cfg:               cfg,
+		log:               log,
+		sendCh:            make(chan []byte, 64),
+		recvCh:            make(chan *protocol.Envelope, 64),
+		stopCh:            make(chan struct{}),
+		stopped:           make(chan struct{}),
+		heartbeatInterval: time.Duration(cfg.HeartbeatIntervalSecs) * time.Second,
 	}
+}
+
+// SetHeartbeatInterval overrides the heartbeat ping interval. Use in tests to
+// set a short interval (e.g., 100ms) without changing the NodeConfig.
+func (m *ConnectionManager) SetHeartbeatInterval(d time.Duration) {
+	m.heartbeatInterval = d
 }
 
 // SetHTTPClient overrides the HTTP client used for WebSocket dialing. Use
@@ -67,16 +88,14 @@ func (m *ConnectionManager) Start(ctx context.Context) {
 // Stop signals the connection manager to shut down and waits for all
 // background goroutines to exit. It is safe to call Stop() multiple times.
 func (m *ConnectionManager) Stop() {
+	// Close stopCh first — signals handleConn to send a NodeDisconnect frame
+	// before closing the WebSocket. sync.Once prevents double-close panics.
+	m.stopOnce.Do(func() {
+		close(m.stopCh)
+	})
+	// Cancel the context to unblock Dial/Read/Ping operations.
 	if m.cancel != nil {
 		m.cancel()
-	}
-	// Close stopCh to unblock any Send() calls waiting for sendCh capacity.
-	// Use a select to avoid panic on double-close.
-	select {
-	case <-m.stopCh:
-		// already closed
-	default:
-		close(m.stopCh)
 	}
 	// Wait for dialLoop to exit.
 	<-m.stopped

@@ -12,6 +12,7 @@ import (
 	"github.com/user/gsd-tele-go/internal/protocol"
 )
 
+
 // dialLoop is the reconnect loop. It runs until ctx is cancelled.
 // On each iteration it attempts a WebSocket dial; on failure it sleeps a
 // jittered backoff duration; on success it calls handleConn (blocking until
@@ -64,13 +65,22 @@ func (m *ConnectionManager) dialLoop(ctx context.Context) {
 	}
 }
 
-// handleConn manages a live connection. It starts a reader goroutine and a
-// writer goroutine, then waits for both to exit (which happens when the
-// connection dies or ctx is cancelled).
-//
-// This is the Phase 11 stub — Phase 12 adds heartbeat and registration.
+// handleConn manages a live connection. It:
+//  1. Sends a NodeRegister frame as the first frame (before starting goroutines)
+//  2. Starts reader, writer, and heartbeat goroutines
+//  3. Waits for all three to exit
+//  4. On clean shutdown (stopCh closed): sends NodeDisconnect frame before close
+//  5. On connection drop: returns to dialLoop for reconnect
 func (m *ConnectionManager) handleConn(ctx context.Context, conn *websocket.Conn) {
 	defer conn.CloseNow()
+
+	// Send NodeRegister as the first frame before starting other goroutines.
+	if err := m.sendRegister(ctx, conn); err != nil {
+		if ctx.Err() == nil {
+			m.log.Warn().Err(err).Msg("failed to send NodeRegister, will reconnect")
+		}
+		return
+	}
 
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -82,7 +92,7 @@ func (m *ConnectionManager) handleConn(ctx context.Context, conn *websocket.Conn
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer cancel() // signal writer to stop when reader exits
+		defer cancel() // signal writer/heartbeat to stop when reader exits
 		for {
 			_, data, err := conn.Read(connCtx)
 			if err != nil {
@@ -106,12 +116,37 @@ func (m *ConnectionManager) handleConn(ctx context.Context, conn *websocket.Conn
 		}
 	}()
 
-	// Writer goroutine (XPORT-06) — sole caller of conn.Write.
+	// Writer goroutine (XPORT-06) — sole caller of conn.Write for normal frames.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		m.runWriter(connCtx, conn)
 	}()
 
+	// Heartbeat goroutine — sends periodic pings; triggers reconnect on pong timeout.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		m.runHeartbeat(connCtx, conn, cancel)
+	}()
+
 	wg.Wait()
+
+	// All goroutines have exited. Check if this is a clean shutdown.
+	select {
+	case <-m.stopCh:
+		// Clean shutdown — send NodeDisconnect frame before closing.
+		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutCancel()
+		disconnectEnv, err := protocol.Encode(protocol.TypeNodeDisconnect, generateMsgID(), protocol.NodeDisconnect{Reason: "shutdown"})
+		if err == nil {
+			data, merr := json.Marshal(disconnectEnv)
+			if merr == nil {
+				_ = conn.Write(shutCtx, websocket.MessageText, data)
+			}
+		}
+		conn.Close(websocket.StatusNormalClosure, "shutdown")
+	default:
+		// Connection dropped — dialLoop will reconnect.
+	}
 }
