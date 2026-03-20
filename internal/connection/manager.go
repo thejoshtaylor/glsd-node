@@ -87,6 +87,16 @@ func (m *ConnectionManager) Stop() {
 // Send does not block indefinitely: if the send channel is full and the manager
 // is stopped, ErrStopped is returned rather than waiting.
 func (m *ConnectionManager) Send(data []byte) error {
+	// Check stopCh first (non-blocking) to return ErrStopped immediately if
+	// the manager has been stopped, even if sendCh still has capacity.
+	select {
+	case <-m.stopCh:
+		return ErrStopped
+	case <-m.stopped:
+		return ErrStopped
+	default:
+	}
+	// Now try to enqueue, falling back to ErrStopped if manager shuts down.
 	select {
 	case m.sendCh <- data:
 		return nil
