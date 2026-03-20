@@ -11,10 +11,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **CORE-01**: Bot connects to Telegram via long polling and receives messages from multiple channels
 - [x] **CORE-02**: Bot loads configuration from environment variables and/or config file
-- [ ] **CORE-03**: Bot sends typing indicators while processing requests
+- [x] **CORE-03**: Bot sends typing indicators while processing requests
 - [x] **CORE-04**: Bot reports errors back to the user with truncated error messages
 - [x] **CORE-05**: Bot rate-limits requests per channel using token bucket algorithm
-- [ ] **CORE-06**: Bot writes append-only audit log (timestamp, user, channel, action, message excerpt)
+- [x] **CORE-06**: Bot writes append-only audit log (timestamp, user, channel, action, message excerpt)
 
 ### Claude Session Management
 
@@ -39,7 +39,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **AUTH-01**: Bot authenticates users based on Telegram channel membership (per-channel auth)
 - [x] **AUTH-02**: Bot validates file paths against allowed directories before Claude access
-- [ ] **AUTH-03**: Bot checks commands against blocked patterns for safety
+- [x] **AUTH-03**: Bot checks commands against blocked patterns for safety
 
 ### Session Lifecycle Commands
 
@@ -117,10 +117,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | CORE-01 | Phase 1 | Complete |
 | CORE-02 | Phase 1 | Complete |
-| CORE-03 | Phase 6 | Pending |
+| CORE-03 | Phase 6 | Complete |
 | CORE-04 | Phase 1 | Complete |
 | CORE-05 | Phase 1 | Complete |
-| CORE-06 | Phase 6 | Pending |
+| CORE-06 | Phase 6 | Complete |
 | SESS-01 | Phase 1 | Complete |
 | SESS-02 | Phase 1 | Complete |
 | SESS-03 | Phase 1 | Complete |
@@ -136,7 +136,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROJ-05 | Phase 2 | Complete |
 | AUTH-01 | Phase 1 | Complete |
 | AUTH-02 | Phase 1 | Complete |
-| AUTH-03 | Phase 6 | Pending |
+| AUTH-03 | Phase 6 | Complete |
 | CMD-01 | Phase 1 | Complete |
 | CMD-02 | Phase 1 | Complete |
 | CMD-03 | Phase 1 | Complete |

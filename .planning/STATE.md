@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-20T08:45:48.050Z"
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-03-20T09:07:11.064Z"
 progress:
   total_phases: 7
-  completed_phases: 5
-  total_plans: 20
-  completed_plans: 20
+  completed_phases: 6
+  total_plans: 22
+  completed_plans: 22
 ---
 
 # Project State
@@ -19,11 +19,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-19)
 
 **Core value:** Control Claude Code remotely from Telegram across multiple projects simultaneously, each in its own channel with its own Claude session.
-**Current focus:** Phase 05 — fix-session-metrics-and-gsd-persistence
+**Current focus:** Phase 06 — cross-phase-safety-hardening
 
 ## Current Position
 
-Phase: 05 (fix-session-metrics-and-gsd-persistence) — EXECUTING
+Phase: 06 (cross-phase-safety-hardening) — EXECUTING
 Plan: 1 of 2
 
 ## Performance Metrics
@@ -62,6 +62,8 @@ Plan: 1 of 2
 | Phase 04 P01 | 15 | 2 tasks | 4 files |
 | Phase 05 P02 | 12 | 2 tasks | 4 files |
 | Phase 05 P01 | 6 | 2 tasks | 4 files |
+| Phase 06-cross-phase-safety-hardening P01 | 18 | 2 tasks | 3 files |
+| Phase 06 P02 | 6 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -144,6 +146,11 @@ Phase 2, Plan 1 (MappingStore + GSD pure functions):
 - [Phase 05]: HandleGsd in command.go also needed persist param threaded — auto-fixed Rule 3 blocking issue (same pattern as Phase 04)
 - [Phase 05-01]: testArgs unexported field on WorkerConfig injects fake process command for tests without changing processMessage signature
 - [Phase 05-01]: Value copies (copyU := *u) when assigning Process pointer fields to Session prevent aliasing — Process is ephemeral, Session is long-lived
+- [Phase 06-02]: Document safety check guards both caption and extracted content (adversarial PDF injection risk)
+- [Phase 06-02]: Photo safety check guards caption only (file path is bot-controlled, not user-provided)
+- [Phase 06-01]: auditLog *audit.Logger added as last parameter to HandleCallback and sub-handlers, consistent with HandleText/HandleVoice/HandlePhoto pattern
+- [Phase 06-01]: Safety layers in enqueueGsdCommand ordered: audit log -> CheckCommandSafety -> StartTypingIndicator, matching text.go pattern exactly
+- [Phase 06-01]: handleCallbackResume and handleCallbackNew get audit logging only (no safety check or typing indicator) -- they are lifecycle ops, not Claude queries
 
 ### Pending Todos
 
@@ -158,6 +165,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:41:16.639Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-03-20T09:07:11.056Z
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None

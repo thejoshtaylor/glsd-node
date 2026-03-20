@@ -15,7 +15,7 @@ Build a Go-native Telegram bot that controls Claude Code across multiple project
 - [ ] **Phase 3: Media Handlers and Windows Service** - Voice, photo, PDF processing and Windows Service deployment
 - [x] **Phase 4: Callback Handler Integration Fixes** - Fix WaitGroup tracking, wrong working directory, and missing rate limiter in callback handlers (completed 2026-03-20)
 - [x] **Phase 5: Fix Session Metrics and GSD Persistence** - Capture token/context data into session fields and wire OnQueryComplete into GSD callback path (completed 2026-03-20)
-- [ ] **Phase 6: Cross-Phase Safety Hardening** - Add typing indicators, audit logging, and command safety checks to all message paths
+- [x] **Phase 6: Cross-Phase Safety Hardening** - Add typing indicators, audit logging, and command safety checks to all message paths (completed 2026-03-20)
 - [ ] **Phase 7: Phase 3 Verification and Nyquist Compliance** - Formal verification of Phase 3, roadmap status update, Nyquist compliance
 
 ## Phase Details
@@ -114,7 +114,7 @@ Plans:
   1. Callback-triggered Claude calls (GSD buttons, resume, new) send a typing indicator while processing
   2. GSD/callback-triggered operations write entries to the audit log
   3. Voice transcripts, photo captions, document content, and GSD callback commands are checked by CheckCommandSafety before reaching Claude
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 06-01-PLAN.md — Wire typing indicators, audit logging, and safety checks into callback handler path
@@ -142,5 +142,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | 3. Media Handlers and Windows Service | 1/4 | In Progress | - |
 | 4. Callback Handler Integration Fixes | 1/1 | Complete   | 2026-03-20 |
 | 5. Fix Session Metrics and GSD Persistence | 2/2 | Complete   | 2026-03-20 |
-| 6. Cross-Phase Safety Hardening | 0/2 | Pending | - |
+| 6. Cross-Phase Safety Hardening | 2/2 | Complete   | 2026-03-20 |
 | 7. Phase 3 Verification and Nyquist Compliance | 0/0 | Pending | - |
