@@ -186,7 +186,7 @@ func Load() (*Config, error) {
 	}
 
 	// --- SafetyPrompt (built from AllowedPaths) ---
-	cfg.SafetyPrompt = buildSafetyPrompt(cfg.AllowedPaths)
+	cfg.SafetyPrompt = BuildSafetyPrompt(cfg.AllowedPaths)
 
 	return cfg, nil
 }
@@ -205,8 +205,9 @@ func resolveClaudeCLIPath() string {
 	return "claude"
 }
 
-// buildSafetyPrompt builds the system prompt constraining Claude to safe file operations.
-func buildSafetyPrompt(paths []string) string {
+// BuildSafetyPrompt builds the system prompt constraining Claude to safe file operations.
+// Exported so per-project WorkerConfig can call it with per-project AllowedPaths.
+func BuildSafetyPrompt(paths []string) string {
 	var pathsList strings.Builder
 	for _, p := range paths {
 		pathsList.WriteString("   - ")

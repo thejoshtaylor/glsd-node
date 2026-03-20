@@ -117,6 +117,10 @@ type Session struct {
 
 	// interruptPending is set by MarkInterrupt() so the worker re-processes after stop.
 	interruptPending bool
+
+	// workerStarted is true once a Worker goroutine has been launched for this session.
+	// Prevents double-start (Pitfall 3 from RESEARCH.md).
+	workerStarted bool
 }
 
 // NewSession creates a new idle Session for the given working directory.
@@ -253,6 +257,20 @@ func (s *Session) LastError() string {
 // StartedAt returns the time this Session was created.
 func (s *Session) StartedAt() time.Time {
 	return s.startedAt
+}
+
+// WorkerStarted reports whether a Worker goroutine has been started.
+func (s *Session) WorkerStarted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.workerStarted
+}
+
+// SetWorkerStarted marks that a Worker goroutine has been started.
+func (s *Session) SetWorkerStarted() {
+	s.mu.Lock()
+	s.workerStarted = true
+	s.mu.Unlock()
 }
 
 // Worker is the session's main processing loop. It must be called in a goroutine.
