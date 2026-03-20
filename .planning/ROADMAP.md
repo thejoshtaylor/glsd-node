@@ -12,7 +12,7 @@ Build a Go-native Telegram bot that controls Claude Code across multiple project
 
 - [x] **Phase 1: Core Bot Infrastructure** - Single-channel bot that sends text to Claude and streams the response back, with all safety and persistence infrastructure correct (completed 2026-03-20)
 - [x] **Phase 2: Multi-Project and GSD Integration** - Multiple independent Claude sessions across channels with full GSD workflow keyboard (completed 2026-03-20)
-- [ ] **Phase 3: Media Handlers and Windows Service** - Voice, photo, PDF processing and Windows Service deployment
+- [x] **Phase 3: Media Handlers and Windows Service** - Voice, photo, PDF processing and Windows Service deployment (completed 2026-03-20)
 - [x] **Phase 4: Callback Handler Integration Fixes** - Fix WaitGroup tracking, wrong working directory, and missing rate limiter in callback handlers (completed 2026-03-20)
 - [x] **Phase 5: Fix Session Metrics and GSD Persistence** - Capture token/context data into session fields and wire OnQueryComplete into GSD callback path (completed 2026-03-20)
 - [x] **Phase 6: Cross-Phase Safety Hardening** - Add typing indicators, audit logging, and command safety checks to all message paths (completed 2026-03-20)
@@ -73,9 +73,9 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md — Config additions (PdfToTextPath) + shared helpers (downloadToTemp, transcribeVoice, extractPDF) + MediaGroupBuffer
-- [ ] 03-02-PLAN.md — Voice handler (Whisper transcription) + Photo handler (single + album buffering)
-- [ ] 03-03-PLAN.md — Document handler (PDF extraction via pdftotext + text file reading)
-- [ ] 03-04-PLAN.md — Bot dispatcher wiring + NSSM Windows Service documentation + human verification
+- [x] 03-02-PLAN.md — Voice handler (Whisper transcription) + Photo handler (single + album buffering)
+- [x] 03-03-PLAN.md — Document handler (PDF extraction via pdftotext + text file reading)
+- [x] 03-04-PLAN.md — Bot dispatcher wiring + NSSM Windows Service documentation + human verification
 
 ### Phase 4: Callback Handler Integration Fixes
 **Goal**: Fix three integration findings in the callback handler chain so that callback-spawned workers drain on shutdown, callback resume/new use the correct project directory, and callback-triggered streaming respects the global API rate limiter
@@ -132,7 +132,7 @@ Plans:
 **Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 07-01-PLAN.md — Write 03-VERIFICATION.md (formal verification of Phase 3 media handlers and Windows Service)
+- [x] 07-01-PLAN.md — Write 03-VERIFICATION.md (formal verification of Phase 3 media handlers and Windows Service)
 - [ ] 07-02-PLAN.md — Update tracking files (ROADMAP, REQUIREMENTS, VALIDATION.md for Phases 3, 4, 7)
 
 ## Progress
@@ -144,8 +144,8 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. Core Bot Infrastructure | 8/8 | Complete   | 2026-03-20 |
 | 2. Multi-Project and GSD Integration | 4/4 | Complete   | 2026-03-20 |
-| 3. Media Handlers and Windows Service | 1/4 | In Progress | - |
+| 3. Media Handlers and Windows Service | 4/4 | Complete   | 2026-03-20 |
 | 4. Callback Handler Integration Fixes | 1/1 | Complete   | 2026-03-20 |
 | 5. Fix Session Metrics and GSD Persistence | 2/2 | Complete   | 2026-03-20 |
 | 6. Cross-Phase Safety Hardening | 2/2 | Complete   | 2026-03-20 |
-| 7. Phase 3 Verification and Nyquist Compliance | 1/2 | In Progress|  |
+| 7. Phase 3 Verification and Nyquist Compliance | 1/2 | In Progress | - |

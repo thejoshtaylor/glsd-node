@@ -150,13 +150,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GSD-03 | Phase 2 | Complete |
 | GSD-04 | Phase 2 | Complete |
 | GSD-05 | Phase 2 | Complete |
-| MEDIA-01 | Phase 7 | Complete |
-| MEDIA-02 | Phase 7 | Complete |
-| MEDIA-03 | Phase 7 | Complete |
-| MEDIA-04 | Phase 7 | Complete |
-| MEDIA-05 | Phase 7 | Complete |
+| MEDIA-01 | Phase 3 | Complete |
+| MEDIA-02 | Phase 3 | Complete |
+| MEDIA-03 | Phase 3 | Complete |
+| MEDIA-04 | Phase 3 | Complete |
+| MEDIA-05 | Phase 3 | Complete |
 | DEPLOY-01 | Phase 1 | Complete |
-| DEPLOY-02 | Phase 7 | Complete |
+| DEPLOY-02 | Phase 3 | Complete |
 | DEPLOY-03 | Phase 1 | Complete |
 | DEPLOY-04 | Phase 1 | Complete |
 
@@ -167,4 +167,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-19*
-*Last updated: 2026-03-19 after gap closure phase creation (Phases 5-7)*
+*Last updated: 2026-03-20 after Phase 7 traceability update — 6 requirements moved to Phase 3 Complete*
