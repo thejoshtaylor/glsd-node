@@ -9,7 +9,7 @@ progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-19)
 ## Current Position
 
 Phase: 03 (media-handlers-and-windows-service) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Plan: 3 of 4
 | Phase 02 P04 | 5 | 2 tasks | 0 files |
 | Phase 03 P01 | 7 | 2 tasks | 6 files |
 | Phase 03 P03 | 8 | 1 tasks | 3 files |
+| Phase 03 P02 | 6 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,9 @@ Phase 2, Plan 1 (MappingStore + GSD pure functions):
 - [Phase 03-03]: truncateText uses byte-length not rune-length for simplicity (consistent with maxTextChars constant)
 - [Phase 03-03]: Document album snippets stored as pre-formatted prompt strings in MediaGroupBuffer paths array (avoids extra data structure)
 - [Phase 03-03]: photo_stub.go created to unblock parallel compilation while Plan 03-02 develops photo.go (superseded once photo.go landed)
+- [Phase 03-02]: Photo temp file cleanup deferred to async ErrCh goroutine (not defer in handler) to ensure Claude can read the file
+- [Phase 03-02]: Album photos cleaned up after MediaGroupBuffer fires and session processes the combined prompt
+- [Phase 03-02]: sendPhotoToSession and sendAlbumToSession are separate functions (not shared with HandleText) to avoid refactoring risk
 
 ### Pending Todos
 
@@ -143,6 +147,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T03:58:02Z
-Stopped at: Completed Phase 03 Plan 03 (03-03-PLAN.md)
+Last session: 2026-03-20T03:59:37Z
+Stopped at: Completed Phase 03 Plan 02 (03-02-PLAN.md)
 Resume file: .planning/phases/03-media-handlers-and-windows-service/03-04-PLAN.md
