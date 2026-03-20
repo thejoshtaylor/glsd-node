@@ -186,6 +186,21 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "node_disconnect",
+			msgType: TypeNodeDisconnect,
+			payload: NodeDisconnect{Reason: "shutting down"},
+			verify: func(t *testing.T, env Envelope) {
+				t.Helper()
+				var got NodeDisconnect
+				if err := env.Decode(&got); err != nil {
+					t.Fatalf("Decode: %v", err)
+				}
+				if got.Reason != "shutting down" {
+					t.Errorf("Reason: got %q, want %q", got.Reason, "shutting down")
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {

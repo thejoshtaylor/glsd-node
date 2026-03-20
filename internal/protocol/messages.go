@@ -18,6 +18,7 @@ const (
 	TypeInstanceStarted  = "instance_started"
 	TypeInstanceFinished = "instance_finished"
 	TypeInstanceError    = "instance_error"
+	TypeNodeDisconnect   = "node_disconnect"
 )
 
 // Envelope is the outer frame for every WebSocket message in both directions.
@@ -136,4 +137,10 @@ type InstanceError struct {
 	InstanceID string `json:"instance_id"`
 	// Error is a human-readable description of the failure.
 	Error string `json:"error"`
+}
+
+// NodeDisconnect is sent by the node before a clean WebSocket close.
+// Reason is optional — empty string means normal shutdown.
+type NodeDisconnect struct {
+	Reason string `json:"reason,omitempty"`
 }
