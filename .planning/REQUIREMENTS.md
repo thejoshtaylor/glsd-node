@@ -14,7 +14,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **CORE-03**: Bot sends typing indicators while processing requests
 - [ ] **CORE-04**: Bot reports errors back to the user with truncated error messages
 - [x] **CORE-05**: Bot rate-limits requests per channel using token bucket algorithm
-- [ ] **CORE-06**: Bot writes append-only audit log (timestamp, user, channel, action, message excerpt)
+- [x] **CORE-06**: Bot writes append-only audit log (timestamp, user, channel, action, message excerpt)
 
 ### Claude Session Management
 
@@ -75,7 +75,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **DEPLOY-01**: Bot compiles to a single Go binary (.exe) for Windows
 - [ ] **DEPLOY-02**: Bot installs as a Windows Service (runs at boot, no terminal window)
-- [ ] **DEPLOY-03**: Bot resolves external tool paths (claude, pdftotext) explicitly at startup, not via PATH lookup
+- [x] **DEPLOY-03**: Bot resolves external tool paths (claude, pdftotext) explicitly at startup, not via PATH lookup
 - [ ] **DEPLOY-04**: Bot supports graceful shutdown — drains active sessions before stopping
 
 ## v2 Requirements
@@ -116,11 +116,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CORE-01 | Phase 1 | Pending |
-| CORE-02 | Phase 1 | Pending |
+| CORE-02 | Phase 1 | Complete |
 | CORE-03 | Phase 1 | Pending |
 | CORE-04 | Phase 1 | Pending |
 | CORE-05 | Phase 1 | Complete |
-| CORE-06 | Phase 1 | Pending |
+| CORE-06 | Phase 1 | Complete |
 | SESS-01 | Phase 1 | Complete |
 | SESS-02 | Phase 1 | Pending |
 | SESS-03 | Phase 1 | Complete |
@@ -157,7 +157,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MEDIA-05 | Phase 3 | Pending |
 | DEPLOY-01 | Phase 1 | Pending |
 | DEPLOY-02 | Phase 3 | Pending |
-| DEPLOY-03 | Phase 1 | Pending |
+| DEPLOY-03 | Phase 1 | Complete |
 | DEPLOY-04 | Phase 1 | Pending |
 
 **Coverage:**
