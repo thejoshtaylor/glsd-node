@@ -44,7 +44,16 @@ Control Claude Code remotely from Telegram across multiple projects simultaneous
 
 ### Active
 
-(None — v1.0 complete. Define next milestone requirements with `/gsd:new-milestone`)
+(See REQUIREMENTS.md for v1.1 requirements)
+
+## Current Milestone: v1.1 Bugfixes
+
+**Goal:** Fix auth failures in Telegram channels and resolve polling timeout errors for stable daily use.
+
+**Target features:**
+- Fix channel-type auth: messages in Telegram channels fail auth because EffectiveSender is nil/channel ID
+- Fix getUpdates polling timeout: HTTP client timeout shorter than long-poll duration causes context deadline exceeded
+- Any additional bugs surfaced during investigation
 
 ### Out of Scope
 
@@ -88,4 +97,4 @@ External deps: claude CLI, pdftotext (poppler), OpenAI Whisper API, NSSM (Window
 | Token bucket rate limiting | Per-channel, goroutine-safe, configurable | ✓ Good — golang.org/x/time/rate |
 
 ---
-*Last updated: 2026-03-20 after v1.0 milestone*
+*Last updated: 2026-03-20 after v1.1 milestone start*
