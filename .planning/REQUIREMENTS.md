@@ -43,11 +43,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Session Lifecycle Commands
 
-- [ ] **CMD-01**: `/start` — shows bot info and current channel status
-- [ ] **CMD-02**: `/new` — creates a new Claude session for the current channel's project
-- [ ] **CMD-03**: `/stop` — aborts the currently running Claude query
-- [ ] **CMD-04**: `/status` — shows session state, token usage, context usage, project info
-- [ ] **CMD-05**: `/resume` — lists saved sessions with inline keyboard picker to restore one
+- [x] **CMD-01**: `/start` — shows bot info and current channel status
+- [x] **CMD-02**: `/new` — creates a new Claude session for the current channel's project
+- [x] **CMD-03**: `/stop` — aborts the currently running Claude query
+- [x] **CMD-04**: `/status` — shows session state, token usage, context usage, project info
+- [x] **CMD-05**: `/resume` — lists saved sessions with inline keyboard picker to restore one
 
 ### Session Persistence
 
@@ -137,11 +137,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUTH-01 | Phase 1 | Complete |
 | AUTH-02 | Phase 1 | Complete |
 | AUTH-03 | Phase 1 | Complete |
-| CMD-01 | Phase 1 | Pending |
-| CMD-02 | Phase 1 | Pending |
-| CMD-03 | Phase 1 | Pending |
-| CMD-04 | Phase 1 | Pending |
-| CMD-05 | Phase 1 | Pending |
+| CMD-01 | Phase 1 | Complete |
+| CMD-02 | Phase 1 | Complete |
+| CMD-03 | Phase 1 | Complete |
+| CMD-04 | Phase 1 | Complete |
+| CMD-05 | Phase 1 | Complete |
 | PERS-01 | Phase 1 | Complete |
 | PERS-02 | Phase 1 | Complete |
 | PERS-03 | Phase 1 | Complete |

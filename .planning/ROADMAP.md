@@ -26,7 +26,7 @@ Build a Go-native Telegram bot that controls Claude Code across multiple project
   3. Bot survives a restart and automatically restores the previous session — user can resume without re-sending their message
   4. Bot rejects messages from users not in the channel, enforces rate limits per channel, and blocks forbidden path patterns before passing them to Claude
   5. Go binary compiles for Windows, resolves claude and pdftotext paths explicitly at startup (logged), and shuts down cleanly draining active sessions
-**Plans:** 5/8 plans executed
+**Plans:** 7/8 plans executed
 
 Plans:
 - [x] 01-01-PLAN.md — Go module init, config package, audit logger
@@ -68,6 +68,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Bot Infrastructure | 5/8 | In Progress|  |
+| 1. Core Bot Infrastructure | 7/8 | In Progress|  |
 | 2. Multi-Project and GSD Integration | 0/TBD | Not started | - |
 | 3. Media Handlers and Windows Service | 0/TBD | Not started | - |

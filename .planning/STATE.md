@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 01-04-PLAN.md (session management package)
-last_updated: "2026-03-20T00:34:15.341Z"
+stopped_at: Completed 01-07-PLAN.md (command handlers and callback)
+last_updated: "2026-03-20T00:48:20.220Z"
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 7
 ---
 
 # Project State
@@ -47,6 +47,8 @@ Plan: 5 of 8 (01-01, 01-02, 01-03, 01-05 complete; 01-04, 01-06, 01-07, 01-08 pe
 
 *Updated after each plan completion*
 | Phase 01 P04 | 22 | 2 tasks | 6 files |
+| Phase 01 P07 | 7 | 2 tasks | 4 files |
+| Phase 01 P06 | 35 | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -90,6 +92,11 @@ Phase 1, Plan 5 (formatting package):
 - [Phase 01]: Worker goroutine started by bot layer not GetOrCreate — caller injects claudePath and WorkerConfig for decoupling
 - [Phase 01]: ErrContextLimit from Stream() clears sessionID so next message starts fresh Claude session (mirrors TypeScript auto-clear)
 - [Phase 01]: QueuedMessage.ErrCh chan error allows async error propagation from Worker to callers
+- [Phase 01]: parseCallbackData extracted as pure function so callback routing is fully testable without gotgbot types
+- [Phase 01]: buildStatusText extracted as pure function so status format is verifiable in unit tests without Bot dependency
+- [Phase 01]: Interface-based AuthChecker/RateLimitChecker in middleware enables unit testing without live Telegram connection
+- [Phase 01]: Worker goroutine heuristic (SessionID empty + StartedAt within 1s) distinguishes new vs restored sessions in HandleText
+- [Phase 01]: context.Background() for HandleText-spawned workers; bot context threading deferred to Plan 07
 
 ### Pending Todos
 
@@ -104,6 +111,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T00:34:15.334Z
-Stopped at: Completed 01-04-PLAN.md (session management package)
+Last session: 2026-03-20T00:47:56.910Z
+Stopped at: Completed 01-07-PLAN.md (command handlers and callback)
 Resume file: None
