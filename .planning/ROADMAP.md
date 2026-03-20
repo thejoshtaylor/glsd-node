@@ -31,7 +31,9 @@ See [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) for full phase deta
   1. Bot runs for an extended idle period with no `context deadline exceeded` errors in the log
   2. Polling timeout (RequestOpts) is set longer than getUpdates Timeout so HTTP client never races the long-poll window
   3. The timeout change is scoped to the polling call only — sendMessage and editMessage timeouts are unchanged
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 08-01-PLAN.md — Add RequestOpts.Timeout to long-poll GetUpdatesOpts
 
 ### Phase 9: Channel Auth
 **Goal**: Users can operate the bot from Telegram channels without auth rejections, and the bot does not echo-loop its own channel messages
@@ -48,5 +50,5 @@ See [milestones/v1.0-ROADMAP.md](milestones/v1.0-ROADMAP.md) for full phase deta
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 8. Polling Stability | v1.1 | 0/TBD | Not started | - |
+| 8. Polling Stability | v1.1 | 0/1 | Not started | - |
 | 9. Channel Auth | v1.1 | 0/TBD | Not started | - |
