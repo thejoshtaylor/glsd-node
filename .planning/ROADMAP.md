@@ -99,6 +99,11 @@ Plans:
   1. After a query completes, /status shows non-zero input/output/cache token counts matching the last Claude response
   2. After a query completes, /status shows a context window usage percentage that reflects actual usage
   3. A GSD command triggered via inline keyboard button results in the session being persisted — it appears in /resume
+**Plans:** 2 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Capture token usage and context percent from Process into Session fields
+- [ ] 05-02-PLAN.md — Thread PersistenceManager into GSD callback chain and set OnQueryComplete
 
 ### Phase 6: Cross-Phase Safety Hardening
 **Goal**: Ensure typing indicators, audit logging, and command safety checks apply uniformly to all message paths — not just text handler
@@ -131,6 +136,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | 2. Multi-Project and GSD Integration | 4/4 | Complete   | 2026-03-20 |
 | 3. Media Handlers and Windows Service | 1/4 | In Progress | - |
 | 4. Callback Handler Integration Fixes | 1/1 | Complete   | 2026-03-20 |
-| 5. Fix Session Metrics and GSD Persistence | 0/0 | Pending | - |
+| 5. Fix Session Metrics and GSD Persistence | 0/2 | Pending | - |
 | 6. Cross-Phase Safety Hardening | 0/0 | Pending | - |
 | 7. Phase 3 Verification and Nyquist Compliance | 0/0 | Pending | - |
