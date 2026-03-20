@@ -1,10 +1,232 @@
 # Feature Research
 
-**Domain:** Telegram bot wrapping AI CLI tools (Claude Code) with multi-project management
-**Researched:** 2026-03-19
+**Domain:** Telegram bot bugfix — channel auth and polling timeout
+**Researched:** 2026-03-20
 **Confidence:** HIGH
 
-## Feature Landscape
+## Scope Note
+
+This document covers v1.1 research only. The full feature landscape for v1.0 is preserved as context
+below the v1.1 section. v1.1 is a targeted bugfix milestone: two specific failures observed in
+production, one root-cause investigation into auth, one into polling timeouts.
+
+---
+
+## v1.1 Bugfix Features
+
+### Bug 1: Channel Auth Failure — EffectiveSender is nil for Channel Posts
+
+**What breaks:** Messages sent in a Telegram channel fail auth because
+`ctx.EffectiveSender` is nil when the update comes from a channel post
+(as opposed to a group message or DM). The auth middleware calls
+`ctx.EffectiveSender.Id()` without a nil check, causing a nil pointer dereference
+or returning `userID = 0`, which is never in the allowed-users list.
+
+**Root cause — Telegram Bot API behavior by chat type:**
+
+The Telegram Bot API distinguishes three update types for "messages":
+
+| Update Field | Chat Type | `from` Field | `sender_chat` Field |
+|---|---|---|---|
+| `Update.Message` | DM | Populated with real User | nil |
+| `Update.Message` | Group / Supergroup | Populated with real User | nil (or Chat for anon admin) |
+| `Update.ChannelPost` | Channel | **nil** (absent per API spec) | Populated with the Channel chat |
+
+The `from` field is explicitly optional in the Telegram Bot API: "Sender of the message; may be empty for messages sent to channels." This has been the documented behavior since Bot API was introduced and has not changed.
+
+**gotgbot v2 behavior:**
+
+gotgbot's `Sender` struct merges `from` (User) and `sender_chat` (Chat) fields. The `Id()` method
+prefers `Chat.Id` when present: "When a message is being sent by a chat/channel, Telegram usually
+populates the User field with dummy values. For this reason, we prefer to return the Chat.Id if it
+is available."
+
+`EffectiveSender` is populated by `NewContext()` based on which update fields are present. For a
+`ChannelPost` update, `from` is nil, so the resulting `Sender.User` is nil. If `sender_chat` is
+also absent (pure channel post with no forwarding), `EffectiveSender` may be nil entirely or may
+have a non-nil `Sender` with a nil `User` and a non-nil `Chat`.
+
+**Critical gotgbot behavior — handlers.NewMessage does NOT match ChannelPost by default:**
+
+`handlers.NewMessage` only fires for `Update.Message` updates unless `SetAllowChannel(true)` is
+called on the handler. Channel posts arrive as `Update.ChannelPost`, which is a separate field.
+
+This means: the text, voice, photo, document handlers registered with `handlers.NewMessage` do NOT
+currently receive channel post updates unless `AllowChannel` is set. The auth middleware runs on
+ALL updates (group -2, `CheckUpdate` returns true), so it will run on channel post updates, but the
+message handlers after it will not fire for those updates.
+
+The auth failure scenario is therefore:
+
+1. A channel post arrives as `Update.ChannelPost`.
+2. The auth middleware runs (group -2, catches all updates).
+3. `ctx.EffectiveSender` is nil or has `User = nil`.
+4. `ctx.EffectiveSender.Id()` returns 0 (if Sender is non-nil but User is nil) or panics (if Sender is nil).
+5. `IsAuthorized(0, channelID, allowedUsers)` returns false — auth rejected.
+6. The message handlers in group 0 would not have fired anyway (no `AllowChannel`).
+
+**Two-part fix required:**
+
+1. Harden auth middleware: when `EffectiveSender` is nil OR `EffectiveSender.Id()` returns 0,
+   fall back to `EffectiveChat.Id` for the auth decision. For a single-owner bot where the
+   channel IS the auth unit, the channel ID is the correct identity to check.
+
+2. Decide channel post handling policy: either enable `AllowChannel` on message handlers so the
+   bot processes channel posts (making the channel a two-way command interface), OR keep channel
+   posts as non-interactive (owner posts to channel are not routed to Claude). This is a product
+   decision, not just a bug fix.
+
+**Recommended policy:** The bot's design uses channels as project workspaces where the owner
+sends messages TO the bot. Channel posts in a pure Telegram channel flow FROM the bot TO
+subscribers — this is the opposite direction. The auth failure is happening because the bot is
+added as an admin to a channel it also posts into (needed for sending responses), so its own
+outbound posts generate `ChannelPost` updates that the auth middleware intercepts. The fix is
+to make the auth middleware pass (or skip) updates where the sender is the bot itself, or to
+filter out `ChannelPost` updates at the middleware level since the bot does not need to receive
+channel posts as commands.
+
+**Table stakes vs differentiator classification:**
+
+| Feature | Classification | Rationale |
+|---|---|---|
+| Auth does not crash on channel post updates | TABLE STAKES | Any nil pointer dereference is a crash bug, not a feature gap |
+| Auth passes updates where sender is the bot itself | TABLE STAKES | Bot's own messages must not trigger auth rejection |
+| Explicit ChannelPost filter (skip or route) | TABLE STAKES | Undefined behavior on channel post updates must be resolved |
+| Accept commands from channel posts | DIFFERENTIATOR | Would allow channel-as-command-interface pattern; not the v1.0 design |
+
+---
+
+### Bug 2: Long-Poll Timeout Error — HTTP Client Timeout Shorter Than getUpdates Timeout
+
+**What breaks:** The bot logs `context deadline exceeded` errors during normal operation. These
+appear periodically even with no user activity. The bot may temporarily stop receiving updates
+until the next successful poll cycle.
+
+**Root cause — timeout relationship in long polling:**
+
+Long polling works by sending a `getUpdates` request with a `timeout` parameter (in seconds).
+Telegram holds the HTTP connection open for up to that many seconds, then responds with either
+an empty array (no updates) or the available updates. This is by design — the connection is
+supposed to stay open.
+
+The relationship that must hold:
+
+```
+HTTP client timeout > getUpdates timeout parameter
+```
+
+If the HTTP client timeout fires before the getUpdates timeout expires, the client closes the
+connection before Telegram has finished its server-side wait. This generates a
+`context deadline exceeded` error from the HTTP layer.
+
+gotgbot v2's `updater.go` documents this explicitly in `PollingOpts`:
+
+> "Using a non-0 'GetUpdatesOpts.Timeout' value. This is how 'long' telegram will hold the
+> long-polling call while waiting for new messages... it is recommended you set your
+> PollingOpts.Timeout value to be slightly bigger (eg, +1)" than the HTTP client timeout.
+
+The wording is slightly confusing (it says set PollingOpts.Timeout bigger, but context indicates
+it means the HTTP client request timeout should be set to polling timeout + buffer). The intent
+is clear: HTTP request timeout = getUpdates timeout + margin.
+
+**Current configuration in bot.go:**
+
+```go
+b.updater.StartPolling(b.bot, &ext.PollingOpts{
+    DropPendingUpdates: false,
+    GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
+        Timeout: 10,
+    },
+})
+```
+
+The `GetUpdatesOpts.Timeout` is 10 seconds. No `RequestOpts` with a longer `Timeout` is passed.
+gotgbot uses `http.DefaultClient` if no custom client is configured. `http.DefaultClient` has no
+timeout (`Timeout: 0`), which means no timeout — this should NOT cause deadline exceeded errors
+by itself.
+
+The actual error source is likely `context.Context` propagation: the `StartPolling` call receives
+the `ctx` from `b.Start()`, which is derived from the parent context. If that context has a
+deadline or is cancelled, all in-flight HTTP requests will fail with `context deadline exceeded`.
+
+**Correct fix:** Pass a `RequestOpts` with `Timeout` set to the polling interval + a generous
+buffer (at least 5 seconds). The standard recommended pattern is:
+
+```go
+pollingTimeout := 30  // seconds Telegram holds the connection
+b.updater.StartPolling(b.bot, &ext.PollingOpts{
+    GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
+        Timeout: pollingTimeout,
+        RequestOpts: &gotgbot.RequestOpts{
+            Timeout: time.Duration(pollingTimeout+5) * time.Second,
+        },
+    },
+})
+```
+
+A `getUpdates` timeout of 30 seconds with an HTTP timeout of 35 seconds gives Telegram the full
+window to respond while ensuring the HTTP layer closes stale connections if Telegram is unreachable.
+The current value of 10 seconds for `GetUpdatesOpts.Timeout` is on the low end; 30 seconds is
+the community standard for stable long-polling bots.
+
+**Table stakes vs differentiator classification:**
+
+| Feature | Classification | Rationale |
+|---|---|---|
+| No spurious context deadline exceeded errors during polling | TABLE STAKES | Periodic errors in production = unstable service |
+| HTTP client timeout set correctly relative to polling timeout | TABLE STAKES | Fundamental long-poll configuration requirement |
+| Polling timeout increased from 10s to 30s | TABLE STAKES | 10s generates 6x more getUpdates requests per minute; 30s is standard |
+| Polling timeout configurable via env var | DIFFERENTIATOR | Nice-to-have for tuning; not blocking |
+
+---
+
+## Chat Type Behavior Reference
+
+This table documents expected Telegram Bot API behavior per chat type for bot-received updates.
+Use this when debugging auth, sender extraction, or handler routing.
+
+| Scenario | Update Field | `from` (User) | `sender_chat` (Chat) | `EffectiveSender.Id()` |
+|---|---|---|---|---|
+| User DM to bot | `Message` | Populated | nil | User ID |
+| User in group/supergroup | `Message` | Populated | nil | User ID |
+| Anonymous admin in group | `Message` | Fake user (1087968824) | Group chat | Chat ID |
+| Channel linked to discussion group (forwarded post) | `Message` | Fake user (777000) | Channel chat | Chat ID |
+| Admin posting to channel (bot as admin) | `ChannelPost` | nil | nil (channel is EffectiveChat) | nil or 0 |
+| Bot's own outbound message (bot posts to channel) | `ChannelPost` | nil | nil | nil or 0 |
+| Callback query (inline keyboard button) | `CallbackQuery` | Populated | nil | User ID |
+
+**Key rule:** In a `ChannelPost` update, the `from` field is absent per Telegram API spec.
+`EffectiveSender` will be nil or have `Id() == 0`. Do not call `EffectiveSender.Id()` without
+a nil guard on ChannelPost updates.
+
+---
+
+## Anti-Features for v1.1
+
+| Anti-Feature | Why Tempting | Why Wrong | Correct Approach |
+|---|---|---|---|
+| Whitelist the channel ID instead of user ID in IsAuthorized | Would "fix" auth by treating channel as user | Conflates two different auth models; hides the real issue that ChannelPost updates should be filtered, not authed | Filter ChannelPost updates before auth; only auth updates that can have real senders |
+| Increase getUpdates timeout to 60+ seconds | Longer poll = fewer requests | Telegram server enforces a maximum; the Telegram Bot API docs recommend positive values but 60s is the upper practical limit; very long timeouts complicate connection health monitoring | Use 30s with a 35s HTTP timeout — standard and documented |
+| Set http.Client.Timeout globally to a short value | Seems like good hygiene | Short global timeout kills long-poll requests which are intended to wait | Set per-request timeout in RequestOpts for getUpdates only; leave other requests at default or a shorter value |
+| Disable the auth middleware for ChannelPost updates via AllowChannel=false on handlers | Stops the handler from running, which avoids the crash | Middleware still runs; nil dereference still happens; AllowChannel controls handler dispatch, not middleware execution | Fix the middleware nil guard; separately decide on ChannelPost handling policy |
+
+---
+
+## Feature Dependencies (v1.1 changes)
+
+```
+[Auth middleware nil guard for EffectiveSender]
+    └──must precede──> [ChannelPost routing decision]
+                           (nil guard makes the middleware safe regardless of routing choice)
+
+[Polling timeout increase to 30s]
+    └──requires──> [RequestOpts.Timeout set to 35s]
+                   (always set both together; setting only the Telegram timeout causes errors)
+```
+
+---
+
+## v1.0 Feature Landscape (retained for context)
 
 ### Table Stakes (Users Expect These)
 
@@ -46,8 +268,6 @@ Features that set the product apart. Not required, but valuable.
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems.
-
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
 | Native Telegram streaming (Bot API) | Would give real live character-by-character streaming | Telegram charges 15% commission on all in-bot Star purchases when enabled; creates revenue dependency on Telegram; only useful for monetized bots | Edit-in-place pattern: throttled message edits simulate streaming without enabling native streaming |
@@ -61,7 +281,7 @@ Features that seem good but create problems.
 | Auto-commit or git push from bot | Convenience for one-command deploys | High risk of pushing broken code or exposing credentials; creates feedback loop without review | Use Claude's existing git tools inside the session; require explicit intent per commit |
 | Conversation history search | Useful reference for past decisions | Telegram already provides message search in channels; duplicating it adds storage and complexity | Rely on Telegram's native channel search; audit log covers structured event history |
 
-## Feature Dependencies
+## Feature Dependencies (v1.0)
 
 ```
 [Per-channel auth]
@@ -94,107 +314,15 @@ Features that seem good but create problems.
     └──conflicts──> [Native Telegram streaming] (streaming API owns the message lifecycle)
 ```
 
-### Dependency Notes
-
-- **Multi-project mapping requires per-channel auth**: Channel ID is both the auth unit and the project key. You cannot have one without the other in this architecture.
-- **Independent sessions require multi-project mapping**: The channel-to-session lookup is the mechanism that provides isolation.
-- **GSD integration requires independent sessions**: GSD commands run in the context of a specific project; without per-project sessions, GSD loses project context.
-- **Contextual buttons conflict with native Telegram streaming**: When native streaming is enabled, Telegram controls the message lifecycle and edit-in-place behavior cannot be combined cleanly. The throttled-edit approach is the correct path.
-- **Voice and PDF require external CLI/API**: These are optional at launch if the external dependency is unavailable; the text path remains fully functional.
-
-## MVP Definition
-
-### Launch With (v1)
-
-Minimum viable product — what's needed to validate the concept.
-
-- [ ] Text message handler with streaming to Claude CLI — core interaction loop
-- [ ] Multi-project channel mapping with dynamic assignment — core value proposition
-- [ ] Independent Claude sessions per channel — isolation guarantee
-- [ ] /new, /stop, /status, /start commands — session lifecycle management
-- [ ] Per-channel auth (channel membership = access) — security baseline
-- [ ] Rate limiting per channel — abuse prevention
-- [ ] Audit logging — debugging capability
-- [ ] Session persistence and /resume — continuity across restarts
-- [ ] Windows Service via NSSM — deployment target
-- [ ] GSD inline keyboard with all 19 operations — key differentiator
-- [ ] Contextual action buttons extracted from responses — enables phone-based GSD workflow
-
-### Add After Validation (v1.x)
-
-Features to add once core is working.
-
-- [ ] Voice transcription via OpenAI Whisper — add when users report typing friction on mobile
-- [ ] Photo analysis with media group buffering — add when users send screenshots
-- [ ] PDF document processing — add when users need to share spec documents
-- [ ] Context window progress bar — add when users hit context limit unexpectedly
-- [ ] Roadmap parsing in /gsd — add once GSD integration is confirmed stable
-- [ ] Token usage in /status — add for cost-awareness requests
-- [ ] ask_user MCP integration — add when MCP server configuration is validated
-
-### Future Consideration (v2+)
-
-Features to defer until product-market fit is established.
-
-- [ ] Video/audio file transcription — niche use case; voice messages cover most mobile audio
-- [ ] Archive extraction from documents — low frequency, adds complexity
-- [ ] Retry last message (/retry) — nice-to-have; easy to add but not essential
-- [ ] Vault/knowledge base search integration — specific to Obsidian workflows; not generalizable
-
-## Feature Prioritization Matrix
-
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Text message + streaming | HIGH | MEDIUM | P1 |
-| Multi-project channel mapping | HIGH | HIGH | P1 |
-| Independent Claude sessions per channel | HIGH | HIGH | P1 |
-| Session lifecycle commands | HIGH | LOW | P1 |
-| Per-channel auth | HIGH | LOW | P1 |
-| GSD inline keyboard | HIGH | MEDIUM | P1 |
-| Contextual action buttons | HIGH | MEDIUM | P1 |
-| Session persistence + /resume | HIGH | MEDIUM | P1 |
-| Rate limiting | MEDIUM | LOW | P1 |
-| Audit logging | MEDIUM | LOW | P1 |
-| Windows Service (NSSM) | HIGH | LOW | P1 |
-| Voice transcription | HIGH | MEDIUM | P2 |
-| Photo analysis | MEDIUM | MEDIUM | P2 |
-| PDF processing | MEDIUM | MEDIUM | P2 |
-| Context window progress bar | MEDIUM | LOW | P2 |
-| Roadmap parsing in /gsd | MEDIUM | LOW | P2 |
-| Token usage display | LOW | LOW | P2 |
-| ask_user MCP | MEDIUM | HIGH | P2 |
-| Video transcription | LOW | MEDIUM | P3 |
-| Archive extraction | LOW | HIGH | P3 |
-| /retry command | LOW | LOW | P3 |
-
-**Priority key:**
-- P1: Must have for launch
-- P2: Should have, add when possible
-- P3: Nice to have, future consideration
-
-## Competitor Feature Analysis
-
-| Feature | ccgram (Go/tmux bridge) | claude-code-telegram (Python) | droid-telegram-bot (Node) | Our Approach |
-|---------|-------------------------|-------------------------------|---------------------------|--------------|
-| Multi-project | Topic-per-tmux-window (forum topics) | `/repo` command to switch directories | Single working dir per session | One Telegram channel per project — cleanest separation |
-| Session management | Auto-sync with tmux windows | Per user/project auto-persistence | Reply-to-message resumes session | Per-channel, persisted to JSON, /resume picker |
-| Streaming | Live status line, MarkdownV2 | Typing indicator + verbose levels | Streaming toggle per session | Throttled edit-in-place with tool status message |
-| Voice | Whisper via Groq or OpenAI | Via Mistral or OpenAI | Not mentioned | OpenAI Whisper API |
-| Auth | No detail provided | User whitelist | User allowlist config | Per-channel membership (no global list) |
-| GSD integration | None | None | None | Full 19-command inline keyboard + contextual buttons |
-| Deployment | Systemd (Linux) | Not specified | Systemd (Linux) | NSSM Windows Service |
-| ask_user | Inline keyboard for prompts | Not mentioned | Once/Always/Deny permission buttons | ask_user JSON file polling, inline keyboard response |
-
 ## Sources
 
-- [alexei-led/ccgram — Telegram tmux bridge for Claude Code](https://github.com/alexei-led/ccgram): Topic-based multi-session architecture, voice transcription, live status, interactive prompt keyboards
-- [RichardAtCT/claude-code-telegram](https://github.com/RichardAtCT/claude-code-telegram): Conversational + terminal modes, webhook events, git integration, verbose streaming levels
-- [factory-ben/droid-telegram-bot](https://github.com/factory-ben/droid-telegram-bot): Reply-based session continuity, permission prompts, autonomy levels, streaming toggle
-- [Streaming responses in Telegram bots comes at a cost](https://durovscode.com/streaming-responses-telegram-bots): Native streaming 15% commission model — reason to use edit-in-place instead
-- [GSD Get Shit Done framework](https://github.com/gsd-build/get-shit-done): Full command list and workflow structure used for GSD integration spec
-- [How to handle streaming responses without markdown parsing errors — Latenode Community](https://community.latenode.com/t/how-to-handle-streaming-responses-from-google-ai-in-telegram-bot-without-markdown-parsing-errors/21646): Edit-in-place pattern for streaming, HTML vs MarkdownV2 tradeoffs
-- Existing TypeScript codebase (`src/`) — functional specification for feature parity
+- [Telegram Bot API — Message object](https://core.telegram.org/bots/api#message): `from` field documented as "may be empty for messages sent to channels"; `sender_chat` field present for anonymous admin and channel-forwarded messages. HIGH confidence.
+- [gotgbot v2 sender.go](https://github.com/PaulSonOfLars/gotgbot/blob/v2/sender.go): `Sender.Id()` prefers `Chat.Id` over `User.Id` for channel/anonymous senders; `IsChannelPost()` checks Chat type and ID match. HIGH confidence.
+- [gotgbot v2 ext/handlers/message.go](https://pkg.go.dev/github.com/PaulSonOfLars/gotgbot/v2/ext/handlers): `SetAllowChannel(true)` required for handler to match `ChannelPost` updates; default is false. HIGH confidence.
+- [gotgbot v2 ext/updater.go](https://github.com/PaulSonOfLars/gotgbot/blob/v2/ext/updater.go): `PollingOpts` comments recommend HTTP request timeout = getUpdates timeout + buffer. HIGH confidence.
+- [pyTelegramBotAPI issue #2810](https://github.com/python-telegram-bot/python-telegram-bot/issues/2810): Anonymous admin user ID 777000 and 1087968824 sentinel values documented in community. MEDIUM confidence.
+- [Long Polling — Telegram.Bot .NET guide](https://telegrambots.github.io/book/3/updates/polling.html): HTTP client timeout must exceed getUpdates timeout parameter. MEDIUM confidence.
 
 ---
 *Feature research for: Go Telegram Bot with multi-project Claude Code integration*
-*Researched: 2026-03-19*
+*Researched: 2026-03-20 (v1.1 bugfix update)*

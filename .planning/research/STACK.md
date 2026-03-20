@@ -1,7 +1,7 @@
 # Stack Research
 
 **Domain:** Go Telegram bot — multi-project Claude CLI manager, Windows Service deployment
-**Researched:** 2026-03-19
+**Researched:** 2026-03-19 (updated 2026-03-20 for v1.1 bugfixes)
 **Confidence:** HIGH (core stack), MEDIUM (supporting libraries)
 
 ## Recommended Stack
@@ -138,5 +138,239 @@ go get github.com/rs/zerolog
 - [kardianos/service NSSM comparison](https://paulbradley.dev/go-windows-service/) — deployment tradeoffs (MEDIUM confidence)
 
 ---
+
+## v1.1 Bugfix Addendum: gotgbot/v2 APIs for Channel Auth and Long-Poll Timeout
+
+*Added 2026-03-20. Focused scope: only the specific APIs needed for the two v1.1 bugs.*
+
+---
+
+### Bug 1: Channel Auth — EffectiveSender for Channel Posts
+
+#### Root Cause
+
+In `internal/bot/middleware.go`, `authMiddlewareWith` extracts `userID` via `ctx.EffectiveSender.Id()`. For Telegram channel posts (`update.ChannelPost`), the message has no `From` user — only a `SenderChat`. The `Sender.Id()` method returns the channel's chat ID (not a user ID), which will never match any entry in `AllowedUsers`, causing auth rejection for all legitimate channel messages.
+
+The existing `security.IsAuthorized` function checks only user IDs. Channel posts have no user — only a chat.
+
+#### gotgbot/v2 Types Verified (v2.0.0-rc.34, confirmed against GitHub v2 branch)
+
+**`gotgbot.Sender` struct:**
+
+```go
+type Sender struct {
+    User               *User
+    Chat               *Chat
+    IsAutomaticForward bool
+    ChatId             int64    // ID of the destination chat
+    AuthorSignature    string
+}
+```
+
+**Sender classification methods:**
+
+| Method | Condition | Use case |
+|--------|-----------|----------|
+| `IsUser()` | `Chat == nil && User != nil` | Normal user or bot DM |
+| `IsBot()` | `User != nil && User.IsBot` | Bot-generated message |
+| `IsChannelPost()` | `Chat != nil && Chat.Id == ChatId && Chat.Type == "channel"` | Direct channel post — THIS is the target case |
+| `IsAnonymousAdmin()` | `Chat != nil && Chat.Id == ChatId && Chat.Type != "channel"` | Anonymous admin in group |
+| `IsLinkedChannel()` | `Chat != nil && Chat.Id != ChatId && IsAutomaticForward` | Forwarded from linked channel |
+
+**`Sender.Id()` behavior:**
+- If `Chat != nil`: returns `Chat.Id` (the channel's ID, not a user ID)
+- Else if `User != nil`: returns `User.Id`
+- Else: returns `0`
+
+**How `EffectiveSender` is populated for channel posts** (verified from `ext/context.go`):
+
+For `update.ChannelPost != nil`, the context sets `EffectiveMessage = update.ChannelPost` and `EffectiveChat = &update.ChannelPost.Chat`. No `EffectiveUser` is set. The `Sender` is derived by `msg.GetSender()`:
+
+```go
+// What GetSender() returns for a channel post:
+&Sender{
+    User:               m.From,           // nil — channel posts have no From
+    Chat:               m.SenderChat,     // the channel that posted
+    IsAutomaticForward: m.IsAutomaticForward,
+    ChatId:             m.Chat.Id,        // same as Chat.Id for direct channel posts
+}
+```
+
+Because `Chat.Id == ChatId` and `Chat.Type == "channel"`, `IsChannelPost()` returns `true`.
+
+**`EffectiveChat` is always reliable.** It is populated for all update types including channel posts. `ctx.EffectiveChat.Id` gives the channel's ID without depending on sender.
+
+#### Fix Pattern
+
+Auth must distinguish between user messages (auth by user ID) and channel posts (auth by channel ID). The `IsChannelPost()` method on `Sender` is the canonical gotgbot signal:
+
+```go
+// Replace the current userID extraction block in authMiddlewareWith:
+
+var userID int64
+var isChannelMessage bool
+
+if ctx.EffectiveSender != nil {
+    if ctx.EffectiveSender.IsChannelPost() || ctx.EffectiveSender.IsAnonymousAdmin() {
+        // No user ID available — auth by channel ID instead
+        isChannelMessage = true
+    } else {
+        userID = ctx.EffectiveSender.Id()
+    }
+}
+
+var channelID int64
+if ctx.EffectiveChat != nil {
+    channelID = ctx.EffectiveChat.Id
+}
+```
+
+Since `MappingStore` already tracks which channel IDs are registered projects, the auth rule for channel posts is: **a channel post is authorized if and only if the channel ID is registered in `MappingStore`**. This requires no new data — it uses the existing mapping infrastructure.
+
+---
+
+### Bug 2: Long-Poll Timeout — HTTP Client vs getUpdates Timeout
+
+#### Root Cause
+
+Current code in `internal/bot/bot.go`:
+
+```go
+b.updater.StartPolling(b.bot, &ext.PollingOpts{
+    GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
+        Timeout: 10,
+    },
+})
+```
+
+`GetUpdatesOpts.Timeout` (value: `10`) tells Telegram's server to hold the connection for up to 10 seconds. However, `gotgbot.NewBot` is called with `nil` BotOpts, which means `BaseBotClient` applies its `DefaultTimeout` of **5 seconds** to every HTTP request via context deadline.
+
+Telegram holds the connection for 10 seconds; the HTTP client cancels it after 5 seconds. Every long-poll cycle where no update arrives in the first 5 seconds produces `context deadline exceeded`.
+
+#### gotgbot/v2 Types Verified (v2.0.0-rc.34, confirmed against GitHub v2 branch and request.go)
+
+**`BaseBotClient` struct** (in `request.go`):
+
+```go
+type BaseBotClient struct {
+    Client             http.Client   // underlying HTTP client
+    UseTestEnvironment bool
+    DefaultRequestOpts *RequestOpts  // applied to every request when no per-call opts override
+}
+```
+
+**`RequestOpts` struct:**
+
+```go
+type RequestOpts struct {
+    Timeout time.Duration  // context deadline for HTTP request
+    APIURL  string
+}
+```
+
+Timeout semantics:
+- Positive value: sets a specific context deadline
+- Negative value: no timeout (infinite) — use `-1 * time.Second` for no limit
+- Zero: falls through to `DefaultTimeout` (5 seconds hardcoded in `request.go`)
+
+**`GetUpdatesOpts` with per-call `RequestOpts`:**
+
+```go
+type GetUpdatesOpts struct {
+    Offset         int64
+    Limit          int64
+    Timeout        int64          // seconds — server-side hold duration
+    AllowedUpdates []string
+    RequestOpts    *RequestOpts   // overrides DefaultRequestOpts for this call only
+}
+```
+
+**`BotOpts` struct** (passed to `gotgbot.NewBot`):
+
+```go
+type BotOpts struct {
+    BotClient         BotClient    // inject custom BaseBotClient
+    DisableTokenCheck bool
+    RequestOpts       *RequestOpts // used only for the initial GetMe validation call
+}
+```
+
+#### Fix Pattern (Recommended: per-request timeout in GetUpdatesOpts)
+
+Set `RequestOpts.Timeout` inside `GetUpdatesOpts` so only the long-poll call gets a longer timeout. All other API calls (sendMessage, editMessage, etc.) retain the default 5-second timeout.
+
+```go
+b.updater.StartPolling(b.bot, &ext.PollingOpts{
+    DropPendingUpdates: false,
+    GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
+        Timeout: 30,   // seconds — Telegram holds connection up to this long
+        RequestOpts: &gotgbot.RequestOpts{
+            Timeout: 35 * time.Second,  // HTTP deadline must exceed the server-side hold
+        },
+    },
+})
+```
+
+The rule: `RequestOpts.Timeout` must be greater than `GetUpdatesOpts.Timeout` (converted to duration). The official gotgbot sample uses +1 second. Using +5 seconds provides a safer buffer for slow networks.
+
+**Official sample** (`samples/middlewareBot/main.go`, GitHub v2 branch) uses exactly:
+
+```go
+GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
+    Timeout: 9,
+    RequestOpts: &gotgbot.RequestOpts{
+        Timeout: time.Second * 10,
+    },
+},
+```
+
+This is the canonical pattern. The current code sets `Timeout: 10` but omits `RequestOpts`, which is the bug.
+
+**Alternative: DefaultRequestOpts on BaseBotClient** (not recommended for this case)
+
+```go
+tgBot, err := gotgbot.NewBot(cfg.TelegramToken, &gotgbot.BotOpts{
+    BotClient: &gotgbot.BaseBotClient{
+        Client: http.Client{},
+        DefaultRequestOpts: &gotgbot.RequestOpts{
+            Timeout: 35 * time.Second,
+        },
+    },
+})
+```
+
+This applies a 35-second timeout to ALL API calls from this bot, including sendMessage and editMessage. Not recommended — it only adds unnecessary latency tolerance on calls that should fail fast.
+
+#### What NOT to Do
+
+| Avoid | Why |
+|-------|-----|
+| Increase `GetUpdatesOpts.Timeout` without adding `RequestOpts.Timeout` | Reproduces the same bug at a longer duration |
+| Set `http.Client.Timeout` on the underlying `http.Client` in `BaseBotClient` | Affects all requests; can't be overridden per-call; less flexible |
+| Use negative `RequestOpts.Timeout` globally | Removes all timeouts from every API call; hides real network failures |
+
+---
+
+### Summary Table for v1.1 Fixes
+
+| Bug | Current Code | Fix | API Used |
+|-----|-------------|-----|----------|
+| Channel auth failure | `EffectiveSender.Id()` returns channel ID, not user ID | Check `EffectiveSender.IsChannelPost()` before extracting user ID; auth channel posts by `channelID` via `MappingStore` | `gotgbot.Sender.IsChannelPost()`, `gotgbot.Sender.IsUser()` |
+| Long-poll timeout | `GetUpdatesOpts{Timeout: 10}` with no `RequestOpts`; default HTTP timeout is 5s | Add `RequestOpts: &gotgbot.RequestOpts{Timeout: 35 * time.Second}` inside `GetUpdatesOpts` alongside `Timeout: 30` | `gotgbot.GetUpdatesOpts.RequestOpts`, `gotgbot.RequestOpts` |
+
+No dependency changes. Both fixes are pure configuration/logic changes to existing files. No new packages needed.
+
+---
+
+### Additional v1.1 Sources
+
+- [gotgbot ext package — pkg.go.dev v2.0.0-rc.34](https://pkg.go.dev/github.com/PaulSonOfLars/gotgbot/v2@v2.0.0-rc.34/ext) — PollingOpts struct, long-poll Timeout docs and warning about context deadline exceeded — HIGH confidence
+- [gotgbot context.go — GitHub v2 branch](https://github.com/PaulSonOfLars/gotgbot/blob/v2/ext/context.go) — ChannelPost case in context population verified — HIGH confidence
+- [gotgbot sender.go — GitHub v2 branch](https://github.com/PaulSonOfLars/gotgbot/blob/v2/sender.go) — Sender struct, IsChannelPost(), Id() methods verified — HIGH confidence
+- [gotgbot request.go — GitHub v2 branch](https://github.com/PaulSonOfLars/gotgbot/blob/v2/request.go) — BaseBotClient, DefaultRequestOpts, DefaultTimeout (5s), getTimeoutContext verified — HIGH confidence
+- [gotgbot middleware sample — GitHub v2 branch](https://github.com/PaulSonOfLars/gotgbot/blob/v2/samples/middlewareBot/main.go) — canonical pattern Timeout:9 + RequestOpts:10s confirmed — HIGH confidence
+
+---
+
 *Stack research for: Go Telegram bot with multi-project Claude CLI management, Windows Service deployment*
-*Researched: 2026-03-19*
+*Researched: 2026-03-19, updated 2026-03-20 for v1.1 bugfixes*
