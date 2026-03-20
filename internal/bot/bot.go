@@ -118,10 +118,16 @@ func (b *Bot) Start(ctx context.Context) error {
 	b.registerHandlers(dispatcher)
 
 	// Start long polling.
+	// RequestOpts.Timeout (15s) must exceed GetUpdatesOpts.Timeout (10s) so the
+	// HTTP client never cancels before Telegram responds, preventing context
+	// deadline exceeded errors during normal idle polling.
 	if err := b.updater.StartPolling(b.bot, &ext.PollingOpts{
 		DropPendingUpdates: false,
 		GetUpdatesOpts: &gotgbot.GetUpdatesOpts{
 			Timeout: 10,
+			RequestOpts: &gotgbot.RequestOpts{
+				Timeout: 15 * time.Second,
+			},
 		},
 	}); err != nil {
 		cancel()
