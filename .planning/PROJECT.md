@@ -29,8 +29,9 @@ Run and orchestrate multiple Claude Code instances across projects from a centra
 - v1.2 Phase 10: Protocol message types and node config — stable wire contract established
 - v1.2 Phase 11: WebSocket ConnectionManager — dial, reconnect, heartbeat, single writer
 - v1.2 Phase 12: Telegram removed, session keys migrated to instance UUID strings
-- ~3,500 lines of Go across 24 files (massive deletion of Telegram/TS code)
-- All automated tests pass (7 packages: audit, claude, config, connection, protocol, security, session)
+- v1.2 Phase 13: Full working node — dispatch, multi-instance management, graceful shutdown
+- ~4,200 lines of Go across 26 files
+- All automated tests pass (8 packages: audit, claude, config, connection, dispatch, protocol, security, session)
 - 4 human verification items deferred (live Telegram bot testing)
 
 ## Requirements
