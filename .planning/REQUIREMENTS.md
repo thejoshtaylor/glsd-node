@@ -52,7 +52,7 @@ Requirements for the custom webapp milestone. Each maps to roadmap phases.
 
 ### Documentation
 
-- [ ] **DOCS-01**: Communication protocol spec — full message type catalog, envelope format, sequence diagrams, authentication handshake
+- [x] **DOCS-01**: Communication protocol spec — full message type catalog, envelope format, sequence diagrams, authentication handshake
 - [x] **DOCS-02**: Server backend structure spec — API design, data models, node management, OpenAI Whisper integration for voice-to-text (server-side)
 
 ## Future Requirements
@@ -112,7 +112,7 @@ Deferred to v1.2.x or later. Tracked but not in current roadmap.
 | CLEAN-02 | Phase 12 | Complete |
 | CLEAN-03 | Phase 12 | Complete |
 | CLEAN-04 | Phase 12 | Complete |
-| DOCS-01 | Phase 14 | Pending |
+| DOCS-01 | Phase 14 | Complete |
 | DOCS-02 | Phase 14 | Complete |
 
 **Coverage:**
