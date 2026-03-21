@@ -24,8 +24,8 @@ type SavedSession struct {
 	// Title is the first ~50 characters of the first message sent in this session.
 	Title string `json:"title"`
 
-	// ChannelID is the Telegram channel (chat) ID that owns this session.
-	ChannelID int64 `json:"channel_id"`
+	// InstanceID is the instance identifier (project name or UUID) that owns this session.
+	InstanceID string `json:"instance_id"`
 }
 
 // SessionHistory is the top-level structure stored in the persistence JSON file.
@@ -104,8 +104,8 @@ func (pm *PersistenceManager) Load() (*SessionHistory, error) {
 	return pm.loadLocked()
 }
 
-// LoadForChannel returns all saved sessions for the given Telegram channel.
-func (pm *PersistenceManager) LoadForChannel(channelID int64) ([]SavedSession, error) {
+// LoadForInstance returns all saved sessions for the given instance ID.
+func (pm *PersistenceManager) LoadForInstance(instanceID string) ([]SavedSession, error) {
 	history, err := pm.Load()
 	if err != nil {
 		return nil, err
@@ -113,18 +113,18 @@ func (pm *PersistenceManager) LoadForChannel(channelID int64) ([]SavedSession, e
 
 	var out []SavedSession
 	for _, s := range history.Sessions {
-		if s.ChannelID == channelID {
+		if s.InstanceID == instanceID {
 			out = append(out, s)
 		}
 	}
 	return out, nil
 }
 
-// GetLatestForChannel returns the most recently saved session for channelID,
+// GetLatestForInstance returns the most recently saved session for instanceID,
 // or nil if none exist.  "Most recent" is determined by SavedAt string comparison
 // (ISO 8601 timestamps sort lexicographically).
-func (pm *PersistenceManager) GetLatestForChannel(channelID int64) (*SavedSession, error) {
-	sessions, err := pm.LoadForChannel(channelID)
+func (pm *PersistenceManager) GetLatestForInstance(instanceID string) (*SavedSession, error) {
+	sessions, err := pm.LoadForInstance(instanceID)
 	if err != nil {
 		return nil, err
 	}
