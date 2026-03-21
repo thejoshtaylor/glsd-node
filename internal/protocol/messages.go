@@ -3,7 +3,11 @@
 // directions is framed as an Envelope, with the Payload decoded based on Type.
 package protocol
 
-import "encoding/json"
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+)
 
 // Version is the current node protocol version.
 const Version = "1.2.0"
@@ -19,6 +23,7 @@ const (
 	TypeInstanceFinished = "instance_finished"
 	TypeInstanceError    = "instance_error"
 	TypeNodeDisconnect   = "node_disconnect"
+	TypeACK              = "ack"
 )
 
 // Envelope is the outer frame for every WebSocket message in both directions.
@@ -70,6 +75,11 @@ type KillCmd struct {
 // StatusRequest asks the node to send a fresh NodeRegister with current state.
 // Empty struct — carries no additional fields.
 type StatusRequest struct{}
+
+// ACK is sent by the node to acknowledge receipt of a command before execution begins.
+type ACK struct {
+	InstanceID string `json:"instance_id"`
+}
 
 // --- Outbound (node-to-server) event structs ---
 
@@ -143,4 +153,12 @@ type InstanceError struct {
 // Reason is optional — empty string means normal shutdown.
 type NodeDisconnect struct {
 	Reason string `json:"reason,omitempty"`
+}
+
+// NewMsgID returns a cryptographically random 16-byte hex string for use
+// as a message ID in outbound envelopes.
+func NewMsgID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

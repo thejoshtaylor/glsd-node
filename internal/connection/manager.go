@@ -6,8 +6,6 @@ package connection
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"sync"
@@ -22,9 +20,7 @@ import (
 // generateMsgID returns a cryptographically random 16-byte hex string for use
 // as a message ID in outbound envelopes.
 func generateMsgID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	return protocol.NewMsgID()
 }
 
 // ErrStopped is returned by Send() after Stop() has been called.

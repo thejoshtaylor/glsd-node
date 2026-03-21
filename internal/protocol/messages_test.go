@@ -284,3 +284,32 @@ func TestEncodeError(t *testing.T) {
 		t.Error("expected Encode to return an error for unmarshalable type, got nil")
 	}
 }
+
+func TestNewMsgID(t *testing.T) {
+	id1 := NewMsgID()
+	id2 := NewMsgID()
+	if len(id1) != 32 {
+		t.Errorf("expected 32 hex chars, got %d: %q", len(id1), id1)
+	}
+	if id1 == id2 {
+		t.Error("two consecutive IDs should not be equal")
+	}
+}
+
+func TestACKRoundTrip(t *testing.T) {
+	ack := ACK{InstanceID: "inst-123"}
+	env, err := Encode(TypeACK, "msg-1", ack)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if env.Type != TypeACK {
+		t.Errorf("Type = %q, want %q", env.Type, TypeACK)
+	}
+	var got ACK
+	if err := env.Decode(&got); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got.InstanceID != "inst-123" {
+		t.Errorf("InstanceID = %q, want %q", got.InstanceID, "inst-123")
+	}
+}
