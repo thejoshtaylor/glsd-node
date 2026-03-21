@@ -27,8 +27,9 @@ Run and orchestrate multiple Claude Code instances across projects from a centra
 - v1.0: 7 phases, 24 plans — full Go rewrite shipped
 - v1.1: 2 phases, 2 plans — polling stability + channel auth
 - v1.2 Phase 10: Protocol message types and node config — stable wire contract established
-- ~11,800 lines of Go across 56 files
-- All automated tests pass (10 packages including new `internal/protocol`)
+- v1.2 Phase 11: WebSocket ConnectionManager — dial, reconnect, heartbeat, single writer
+- ~12,300 lines of Go across 62 files
+- All automated tests pass (11 packages including `internal/protocol` and `internal/connection`)
 - 4 human verification items deferred (live Telegram bot testing)
 
 ## Requirements
