@@ -22,7 +22,7 @@ Run and orchestrate multiple Claude Code instances across projects from a centra
 
 ## Current State
 
-**v1.2 in progress** — Phase 10 complete as of 2026-03-20.
+**v1.2 complete** — All 5 phases delivered as of 2026-03-21.
 
 - v1.0: 7 phases, 24 plans — full Go rewrite shipped
 - v1.1: 2 phases, 2 plans — polling stability + channel auth
@@ -30,9 +30,9 @@ Run and orchestrate multiple Claude Code instances across projects from a centra
 - v1.2 Phase 11: WebSocket ConnectionManager — dial, reconnect, heartbeat, single writer
 - v1.2 Phase 12: Telegram removed, session keys migrated to instance UUID strings
 - v1.2 Phase 13: Full working node — dispatch, multi-instance management, graceful shutdown
-- ~4,200 lines of Go across 26 files
+- v1.2 Phase 14: Protocol and server spec documents — wire protocol + server backend specs delivered
+- ~4,200 lines of Go across 26 files, plus ~970 lines of specification docs
 - All automated tests pass (8 packages: audit, claude, config, connection, dispatch, protocol, security, session)
-- 4 human verification items deferred (live Telegram bot testing)
 
 ## Requirements
 
@@ -132,4 +132,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-20 after v1.2 milestone start*
+*Last updated: 2026-03-21 after v1.2 Phase 14 completion*
