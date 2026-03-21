@@ -90,10 +90,10 @@ Plans:
   4. Node responds to a `status` query with the current running instance list
   5. On SIGINT/SIGTERM: active streams drain, remaining Claude subprocesses are killed (verified absent from process list within 10 seconds), disconnect frame is sent, and the process exits cleanly — no zombie processes
   6. All received commands appear in the audit log with source and command type; per-project rate limiting rejects excess `run` commands; structured log entries include `node_id`, `instance_id`, and `project` fields
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 - [x] 13-01-PLAN.md — Adapt audit, security, and protocol packages for node-oriented dispatch
-- [ ] 13-02-PLAN.md — Build dispatch package: command routing, instance lifecycle, streaming
+- [x] 13-02-PLAN.md — Build dispatch package: command routing, instance lifecycle, streaming
 - [ ] 13-03-PLAN.md — Wire main.go with full startup and graceful shutdown
 
 ### Phase 14: Protocol and Server Spec Documents
@@ -117,5 +117,5 @@ Plans:
 | 10. Protocol Definitions and Config | v1.2 | 2/2 | Complete    | 2026-03-20 |
 | 11. WebSocket Connection Manager | v1.2 | 2/2 | Complete    | 2026-03-21 |
 | 12. Telegram Removal and Session Migration | v1.2 | 2/2 | Complete    | 2026-03-21 |
-| 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 1/3 | In Progress|  |
+| 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 2/3 | In Progress|  |
 | 14. Protocol and Server Spec Documents | v1.2 | 0/? | Not started | - |

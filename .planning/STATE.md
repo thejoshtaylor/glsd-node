@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Custom Webapp
 status: unknown
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-03-21T01:06:29.671Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-03-21T01:12:30.261Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 13 (dispatch-instance-management-and-node-lifecycle) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Accumulated Context
 
@@ -54,6 +54,9 @@ Plan: 2 of 3
 - [Phase 13]: ProjectRateLimiter.Allow() returns bool only — dispatcher needs allow/deny not delay duration
 - [Phase 13]: protocol.NewMsgID() is canonical ID generator; connection.generateMsgID() delegates to it
 - [Phase 13]: audit.Event redesigned with Source/NodeID/InstanceID/Project — Telegram int64 fields removed entirely
+- [Phase 13]: ConnectionSender interface over concrete ConnectionManager type — testability without network dependency
+- [Phase 13]: sync.Once on instanceState.done gates terminal event — kill+natural-exit race cannot double-emit
+- [Phase 13]: Instance registered in map before ACK/goroutine spawn — prevents kill arriving before instance is tracked
 
 ### Pending Todos
 
@@ -74,6 +77,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:06:29.664Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-03-21T01:12:30.251Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None

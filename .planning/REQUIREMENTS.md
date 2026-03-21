@@ -20,19 +20,19 @@ Requirements for the custom webapp milestone. Each maps to roadmap phases.
 
 - [x] **PROTO-01**: Node sends registration frame on connect: node_id (hardware-derived), platform, project list, version
 - [x] **PROTO-02**: Message envelope format: `type` + `id` + JSON payload for all frames
-- [ ] **PROTO-03**: Node receives and ACKs `run` commands before execution begins
-- [ ] **PROTO-04**: Node receives and handles `kill` commands to terminate specific instances
-- [ ] **PROTO-05**: Node receives and responds to `status` queries with running instance list
+- [x] **PROTO-03**: Node receives and ACKs `run` commands before execution begins
+- [x] **PROTO-04**: Node receives and handles `kill` commands to terminate specific instances
+- [x] **PROTO-05**: Node receives and responds to `status` queries with running instance list
 
 ### Instance Management
 
-- [ ] **INST-01**: Node spawns Claude CLI subprocess on `run` command with project working directory
-- [ ] **INST-02**: Each instance gets a UUID, included in every outgoing frame
-- [ ] **INST-03**: Node streams Claude NDJSON output to server as `instance_chunk` events
-- [ ] **INST-04**: Node sends lifecycle events: `instance_started`, `instance_finished`, `instance_error`
-- [ ] **INST-05**: Multiple Claude instances can run simultaneously in the same project directory
-- [ ] **INST-06**: Node can kill a specific instance by ID on server command
-- [ ] **INST-07**: Instances use `--resume SESSION_ID` to maintain persistent Claude sessions across restarts
+- [x] **INST-01**: Node spawns Claude CLI subprocess on `run` command with project working directory
+- [x] **INST-02**: Each instance gets a UUID, included in every outgoing frame
+- [x] **INST-03**: Node streams Claude NDJSON output to server as `instance_chunk` events
+- [x] **INST-04**: Node sends lifecycle events: `instance_started`, `instance_finished`, `instance_error`
+- [x] **INST-05**: Multiple Claude instances can run simultaneously in the same project directory
+- [x] **INST-06**: Node can kill a specific instance by ID on server command
+- [x] **INST-07**: Instances use `--resume SESSION_ID` to maintain persistent Claude sessions across restarts
 
 ### Node Lifecycle
 
@@ -40,7 +40,7 @@ Requirements for the custom webapp milestone. Each maps to roadmap phases.
 - [x] **NODE-02**: Config via `.env`: `SERVER_URL`, `SERVER_TOKEN`, `HEARTBEAT_INTERVAL_SECS`
 - [ ] **NODE-03**: Graceful shutdown drains active streams, kills remaining processes, sends disconnect
 - [x] **NODE-04**: Per-project rate limiting on incoming `run` commands using token bucket
-- [ ] **NODE-05**: Structured logging with `node_id`, `instance_id`, `project` context fields
+- [x] **NODE-05**: Structured logging with `node_id`, `instance_id`, `project` context fields
 - [x] **NODE-06**: Audit logging for all received commands with source and command type
 
 ### Cleanup
@@ -92,21 +92,21 @@ Deferred to v1.2.x or later. Tracked but not in current roadmap.
 | XPORT-06 | Phase 11 | Complete |
 | PROTO-01 | Phase 10 | Complete |
 | PROTO-02 | Phase 10 | Complete |
-| PROTO-03 | Phase 13 | Pending |
-| PROTO-04 | Phase 13 | Pending |
-| PROTO-05 | Phase 13 | Pending |
-| INST-01 | Phase 13 | Pending |
-| INST-02 | Phase 13 | Pending |
-| INST-03 | Phase 13 | Pending |
-| INST-04 | Phase 13 | Pending |
-| INST-05 | Phase 13 | Pending |
-| INST-06 | Phase 13 | Pending |
-| INST-07 | Phase 13 | Pending |
+| PROTO-03 | Phase 13 | Complete |
+| PROTO-04 | Phase 13 | Complete |
+| PROTO-05 | Phase 13 | Complete |
+| INST-01 | Phase 13 | Complete |
+| INST-02 | Phase 13 | Complete |
+| INST-03 | Phase 13 | Complete |
+| INST-04 | Phase 13 | Complete |
+| INST-05 | Phase 13 | Complete |
+| INST-06 | Phase 13 | Complete |
+| INST-07 | Phase 13 | Complete |
 | NODE-01 | Phase 10 | Complete |
 | NODE-02 | Phase 10 | Complete |
 | NODE-03 | Phase 13 | Pending |
 | NODE-04 | Phase 13 | Complete |
-| NODE-05 | Phase 13 | Pending |
+| NODE-05 | Phase 13 | Complete |
 | NODE-06 | Phase 13 | Complete |
 | CLEAN-01 | Phase 12 | Complete |
 | CLEAN-02 | Phase 12 | Complete |
