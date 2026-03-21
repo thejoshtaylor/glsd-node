@@ -103,7 +103,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. `docs/protocol-spec.md` exists with the full message type catalog, `Envelope` format, authentication handshake sequence, reconnect behavior, and at least one sequence diagram covering the execute-stream-finish flow
   2. `docs/server-spec.md` exists describing the WebSocket endpoint contract, data models the server must maintain per node and per instance, and the OpenAI Whisper integration point for server-side voice-to-text
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 14-01-PLAN.md — Wire protocol specification (message catalog, Envelope, auth, reconnect, sequence diagrams)
+- [ ] 14-02-PLAN.md — Server backend specification (WebSocket endpoint, data models, Whisper integration)
 
 ## Progress
 
@@ -117,5 +120,5 @@ Plans:
 | 10. Protocol Definitions and Config | v1.2 | 2/2 | Complete    | 2026-03-20 |
 | 11. WebSocket Connection Manager | v1.2 | 2/2 | Complete    | 2026-03-21 |
 | 12. Telegram Removal and Session Migration | v1.2 | 2/2 | Complete    | 2026-03-21 |
-| 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 3/3 | Complete   | 2026-03-21 |
-| 14. Protocol and Server Spec Documents | v1.2 | 0/? | Not started | - |
+| 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 3/3 | Complete    | 2026-03-21 |
+| 14. Protocol and Server Spec Documents | v1.2 | 0/2 | Not started | - |
