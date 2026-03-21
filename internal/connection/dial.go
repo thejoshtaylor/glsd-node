@@ -24,9 +24,11 @@ func (m *ConnectionManager) dialLoop(ctx context.Context) {
 	backoff := newBackoff(500*time.Millisecond, 30*time.Second)
 
 	for {
-		// Check for cancellation before attempting a new dial.
+		// Check for stop signals before attempting a new dial.
 		select {
 		case <-ctx.Done():
+			return
+		case <-m.stopCh:
 			return
 		default:
 		}
@@ -48,6 +50,8 @@ func (m *ConnectionManager) dialLoop(ctx context.Context) {
 			case <-time.After(delay):
 			case <-ctx.Done():
 				return
+			case <-m.stopCh:
+				return
 			}
 			continue
 		}
@@ -59,8 +63,19 @@ func (m *ConnectionManager) dialLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-m.stopCh:
+			return
 		default:
-			// Loop back to reconnect.
+			// Neither stop signal — reconnect with backoff.
+			delay := backoff.Next()
+			m.log.Info().Dur("retry_in", delay).Msg("reconnecting")
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return
+			case <-m.stopCh:
+				return
+			}
 		}
 	}
 }
@@ -117,10 +132,11 @@ func (m *ConnectionManager) handleConn(ctx context.Context, conn *websocket.Conn
 	}()
 
 	// Writer goroutine (XPORT-06) — sole caller of conn.Write for normal frames.
+	// On clean shutdown, writer sends disconnect frame and closes the connection.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		m.runWriter(connCtx, conn)
+		m.runWriter(connCtx, conn, cancel)
 	}()
 
 	// Heartbeat goroutine — sends periodic pings; triggers reconnect on pong timeout.
@@ -131,22 +147,7 @@ func (m *ConnectionManager) handleConn(ctx context.Context, conn *websocket.Conn
 	}()
 
 	wg.Wait()
-
-	// All goroutines have exited. Check if this is a clean shutdown.
-	select {
-	case <-m.stopCh:
-		// Clean shutdown — send NodeDisconnect frame before closing.
-		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer shutCancel()
-		disconnectEnv, err := protocol.Encode(protocol.TypeNodeDisconnect, generateMsgID(), protocol.NodeDisconnect{Reason: "shutdown"})
-		if err == nil {
-			data, merr := json.Marshal(disconnectEnv)
-			if merr == nil {
-				_ = conn.Write(shutCtx, websocket.MessageText, data)
-			}
-		}
-		conn.Close(websocket.StatusNormalClosure, "shutdown")
-	default:
-		// Connection dropped — dialLoop will reconnect.
-	}
+	// The writer goroutine handles sending the NodeDisconnect frame and the
+	// WebSocket close frame on clean shutdown. conn.CloseNow() (deferred at
+	// top) handles forced cleanup on connection drop or error.
 }

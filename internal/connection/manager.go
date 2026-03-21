@@ -78,27 +78,54 @@ func (m *ConnectionManager) SetHTTPClient(c *http.Client) {
 
 // Start launches the dial loop in a background goroutine and returns
 // immediately. The dial loop reconnects automatically on failure.
-// ctx controls the lifetime of all background goroutines.
+// ctx controls the lifetime of all background goroutines; Stop() provides an
+// additional clean-shutdown path via m.stopCh.
 func (m *ConnectionManager) Start(ctx context.Context) {
+	// Create a child context that we can cancel independently. This is used
+	// to unblock websocket.Dial (which takes a context) when Stop() is called
+	// AFTER the writer goroutine has sent the disconnect frame.
 	childCtx, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
+
+	// stopWatcher cancels the child context once the writer goroutine has
+	// completed clean shutdown (indicated by dialLoop exiting via stopCh).
+	// This two-phase approach ensures the writer can send the disconnect frame
+	// before any context cancellation closes the underlying connection.
+	go func() {
+		select {
+		case <-m.stopped:
+			// dialLoop exited; cancel is a no-op but harmless.
+			cancel()
+		case <-childCtx.Done():
+			// External context cancelled (user called ctx.Cancel); just exit.
+		}
+	}()
+
 	go m.dialLoop(childCtx)
 }
 
-// Stop signals the connection manager to shut down and waits for all
+// Stop signals the connection manager to shut down cleanly and waits for all
 // background goroutines to exit. It is safe to call Stop() multiple times.
+//
+// Shutdown sequence:
+//  1. Close stopCh — signals writer goroutine to send NodeDisconnect frame
+//  2. Writer sends disconnect frame, closes WebSocket connection
+//  3. Reader and heartbeat exit (connection closed by writer)
+//  4. dialLoop sees stopCh and exits without reconnecting
+//  5. m.stopped is closed; Stop() returns
 func (m *ConnectionManager) Stop() {
-	// Close stopCh first — signals handleConn to send a NodeDisconnect frame
-	// before closing the WebSocket. sync.Once prevents double-close panics.
+	// Close stopCh — the writer goroutine monitors this and sends the
+	// NodeDisconnect frame before closing the WebSocket. sync.Once prevents
+	// double-close panics on repeated Stop() calls.
 	m.stopOnce.Do(func() {
 		close(m.stopCh)
 	})
-	// Cancel the context to unblock Dial/Read/Ping operations.
+	// Wait for dialLoop to exit completely.
+	<-m.stopped
+	// Cancel context to clean up any resources (no-op if already cancelled).
 	if m.cancel != nil {
 		m.cancel()
 	}
-	// Wait for dialLoop to exit.
-	<-m.stopped
 }
 
 // Send enqueues data for delivery to the server via the single writer goroutine.
