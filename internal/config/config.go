@@ -1,5 +1,5 @@
 // Package config provides environment parsing, path resolution, and constants
-// for the gsd-tele-go Telegram bot.
+// for the gsd-tele-go node.
 package config
 
 import (
@@ -14,18 +14,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Telegram message limits
+// Session and queue sizing constants.
 const (
-	TelegramMessageLimit  = 4096
-	TelegramSafeLimit     = 4000
-	StreamingThrottleMs   = 500
-	ButtonLabelMaxLength  = 30
-	QueryTimeoutMs        = 180_000
-	MaxSessionHistory     = 5
-	SessionQueueSize      = 5
+	MaxSessionHistory = 5
+	SessionQueueSize  = 5
 )
 
-// BlockedPatterns contains dangerous command patterns that the bot will reject.
+// BlockedPatterns contains dangerous command patterns that the node will reject.
 var BlockedPatterns = []string{
 	"rm -rf /",
 	"rm -rf ~",
@@ -40,14 +35,8 @@ var BlockedPatterns = []string{
 	"del /s /q c:",
 }
 
-// Config holds all configuration values for the bot.
+// Config holds all configuration values for the node.
 type Config struct {
-	// TelegramToken is the bot token from BotFather (required).
-	TelegramToken string
-
-	// AllowedUsers is the list of Telegram user IDs allowed to use the bot (required).
-	AllowedUsers []int64
-
 	// WorkingDir is the default working directory for Claude sessions.
 	WorkingDir string
 
@@ -56,14 +45,6 @@ type Config struct {
 
 	// AllowedPaths is the list of directories Claude is allowed to access.
 	AllowedPaths []string
-
-	// OpenAIAPIKey is the OpenAI API key for voice transcription (optional).
-	OpenAIAPIKey string
-
-	// PdfToTextPath is the resolved path to the pdftotext CLI binary (optional).
-	// If empty, PDF extraction is unavailable and the document handler replies with
-	// "PDF extraction not configured. Set PDFTOTEXT_PATH."
-	PdfToTextPath string
 
 	// RateLimitEnabled controls whether per-channel rate limiting is active.
 	RateLimitEnabled bool
@@ -85,39 +66,12 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables (and .env if present).
-// Required variables: TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USERS.
-// All other variables have documented defaults.
+// All variables have documented defaults.
 func Load() (*Config, error) {
 	// Load .env file if present; ignore error if missing
 	_ = godotenv.Load()
 
 	cfg := &Config{}
-
-	// --- Required: TELEGRAM_BOT_TOKEN ---
-	cfg.TelegramToken = os.Getenv("TELEGRAM_BOT_TOKEN")
-	if cfg.TelegramToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN environment variable is required")
-	}
-
-	// --- Required: TELEGRAM_ALLOWED_USERS ---
-	allowedUsersStr := os.Getenv("TELEGRAM_ALLOWED_USERS")
-	if allowedUsersStr == "" {
-		return nil, fmt.Errorf("TELEGRAM_ALLOWED_USERS environment variable is required")
-	}
-	for _, part := range strings.Split(allowedUsersStr, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		uid, err := strconv.ParseInt(part, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid user ID in TELEGRAM_ALLOWED_USERS: %q", part)
-		}
-		cfg.AllowedUsers = append(cfg.AllowedUsers, uid)
-	}
-	if len(cfg.AllowedUsers) == 0 {
-		return nil, fmt.Errorf("TELEGRAM_ALLOWED_USERS must contain at least one user ID")
-	}
 
 	// --- CLAUDE_WORKING_DIR (default: home dir) ---
 	cfg.WorkingDir = os.Getenv("CLAUDE_WORKING_DIR")
@@ -145,15 +99,6 @@ func Load() (*Config, error) {
 	}
 	if len(cfg.AllowedPaths) == 0 {
 		cfg.AllowedPaths = []string{cfg.WorkingDir}
-	}
-
-	// --- OPENAI_API_KEY (optional) ---
-	cfg.OpenAIAPIKey = os.Getenv("OPENAI_API_KEY")
-
-	// --- PDFTOTEXT_PATH (optional) ---
-	cfg.PdfToTextPath = os.Getenv("PDFTOTEXT_PATH")
-	if cfg.PdfToTextPath != "" {
-		log.Info().Str("pdftotext_path", cfg.PdfToTextPath).Msg("pdftotext path configured")
 	}
 
 	// --- RATE_LIMIT_ENABLED (default: true) ---
@@ -184,10 +129,10 @@ func Load() (*Config, error) {
 		cfg.RateLimitWindow = n
 	}
 
-	// --- AUDIT_LOG_PATH (default: $TEMP/claude-telegram-audit.log) ---
+	// --- AUDIT_LOG_PATH (default: $TEMP/gsd-node-audit.log) ---
 	cfg.AuditLogPath = os.Getenv("AUDIT_LOG_PATH")
 	if cfg.AuditLogPath == "" {
-		cfg.AuditLogPath = filepath.Join(os.TempDir(), "claude-telegram-audit.log")
+		cfg.AuditLogPath = filepath.Join(os.TempDir(), "gsd-node-audit.log")
 	}
 
 	// --- DATA_DIR (default: ./data) ---
@@ -227,7 +172,7 @@ func BuildSafetyPrompt(paths []string) string {
 	}
 
 	return fmt.Sprintf(`
-CRITICAL SAFETY RULES FOR TELEGRAM BOT:
+CRITICAL SAFETY RULES FOR GSD NODE:
 
 1. NEVER delete, remove, or overwrite files without EXPLICIT confirmation from the user.
    - If user asks to delete something, respond: "Are you sure you want to delete [file]? Reply 'yes delete it' to confirm."
@@ -243,8 +188,6 @@ CRITICAL SAFETY RULES FOR TELEGRAM BOT:
    - Commands that could damage the system
 
 4. For any destructive or irreversible action, ALWAYS ask for confirmation first.
-
-You are running via Telegram, so the user cannot easily undo mistakes. Be extra careful!
 `, pathsList.String())
 }
 

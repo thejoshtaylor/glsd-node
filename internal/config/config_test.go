@@ -14,31 +14,17 @@ func setEnv(t *testing.T, pairs map[string]string) {
 	}
 }
 
-// TestLoadConfig verifies that Load populates required fields from env vars.
+// TestLoadConfig verifies that Load populates fields from env vars.
 func TestLoadConfig(t *testing.T) {
 	setEnv(t, map[string]string{
-		"TELEGRAM_BOT_TOKEN":    "test-token-123",
-		"TELEGRAM_ALLOWED_USERS": "111,222,333",
-		"CLAUDE_WORKING_DIR":    "/tmp/test-work",
-		"ALLOWED_PATHS":         "/tmp/test-work,/tmp/docs",
-		"DATA_DIR":              "/tmp/data",
+		"CLAUDE_WORKING_DIR": "/tmp/test-work",
+		"ALLOWED_PATHS":      "/tmp/test-work,/tmp/docs",
+		"DATA_DIR":           "/tmp/data",
 	})
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() returned error: %v", err)
-	}
-
-	if cfg.TelegramToken != "test-token-123" {
-		t.Errorf("TelegramToken = %q, want %q", cfg.TelegramToken, "test-token-123")
-	}
-
-	if len(cfg.AllowedUsers) != 3 {
-		t.Errorf("AllowedUsers length = %d, want 3", len(cfg.AllowedUsers))
-	} else {
-		if cfg.AllowedUsers[0] != 111 || cfg.AllowedUsers[1] != 222 || cfg.AllowedUsers[2] != 333 {
-			t.Errorf("AllowedUsers = %v, want [111 222 333]", cfg.AllowedUsers)
-		}
 	}
 
 	if cfg.WorkingDir != "/tmp/test-work" {
@@ -56,11 +42,7 @@ func TestLoadConfig(t *testing.T) {
 
 // TestLoadConfigDefaults verifies that default values are applied when optional env vars are unset.
 func TestLoadConfigDefaults(t *testing.T) {
-	setEnv(t, map[string]string{
-		"TELEGRAM_BOT_TOKEN":    "test-token",
-		"TELEGRAM_ALLOWED_USERS": "999",
-	})
-
+	// No required vars — Load should succeed with defaults
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() returned error: %v", err)
@@ -89,28 +71,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 	// AllowedPaths should default to [WorkingDir]
 	if len(cfg.AllowedPaths) == 0 {
 		t.Error("AllowedPaths should default to at least one path")
-	}
-}
-
-// TestLoadConfigMissingToken verifies that missing TELEGRAM_BOT_TOKEN returns an error.
-func TestLoadConfigMissingToken(t *testing.T) {
-	// Ensure token is unset
-	t.Setenv("TELEGRAM_BOT_TOKEN", "")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() should return error when TELEGRAM_BOT_TOKEN is empty")
-	}
-}
-
-// TestLoadConfigMissingUsers verifies that missing TELEGRAM_ALLOWED_USERS returns an error.
-func TestLoadConfigMissingUsers(t *testing.T) {
-	t.Setenv("TELEGRAM_BOT_TOKEN", "some-token")
-	t.Setenv("TELEGRAM_ALLOWED_USERS", "")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() should return error when TELEGRAM_ALLOWED_USERS is empty")
 	}
 }
 
@@ -188,15 +148,6 @@ func TestBuildSafetyPrompt(t *testing.T) {
 
 // TestConstants verifies exported constants have expected values.
 func TestConstants(t *testing.T) {
-	if TelegramMessageLimit != 4096 {
-		t.Errorf("TelegramMessageLimit = %d, want 4096", TelegramMessageLimit)
-	}
-	if TelegramSafeLimit != 4000 {
-		t.Errorf("TelegramSafeLimit = %d, want 4000", TelegramSafeLimit)
-	}
-	if StreamingThrottleMs != 500 {
-		t.Errorf("StreamingThrottleMs = %d, want 500", StreamingThrottleMs)
-	}
 	if MaxSessionHistory != 5 {
 		t.Errorf("MaxSessionHistory = %d, want 5", MaxSessionHistory)
 	}
@@ -224,41 +175,6 @@ func TestBlockedPatterns(t *testing.T) {
 		if !found {
 			t.Errorf("BlockedPatterns should contain %q", pattern)
 		}
-	}
-}
-
-// TestLoadConfig_PdfToTextPath verifies that PDFTOTEXT_PATH env var is parsed into PdfToTextPath.
-func TestLoadConfig_PdfToTextPath(t *testing.T) {
-	setEnv(t, map[string]string{
-		"TELEGRAM_BOT_TOKEN":    "test-token",
-		"TELEGRAM_ALLOWED_USERS": "999",
-		"PDFTOTEXT_PATH":        "/usr/bin/pdftotext",
-	})
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if cfg.PdfToTextPath != "/usr/bin/pdftotext" {
-		t.Errorf("PdfToTextPath = %q, want %q", cfg.PdfToTextPath, "/usr/bin/pdftotext")
-	}
-}
-
-// TestLoadConfig_PdfToTextPathMissing verifies that Load() succeeds when PDFTOTEXT_PATH is not set.
-func TestLoadConfig_PdfToTextPathMissing(t *testing.T) {
-	setEnv(t, map[string]string{
-		"TELEGRAM_BOT_TOKEN":    "test-token",
-		"TELEGRAM_ALLOWED_USERS": "999",
-	})
-	// Ensure PDFTOTEXT_PATH is not set.
-	t.Setenv("PDFTOTEXT_PATH", "")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if cfg.PdfToTextPath != "" {
-		t.Errorf("PdfToTextPath = %q, want empty string when PDFTOTEXT_PATH is not set", cfg.PdfToTextPath)
 	}
 }
 
