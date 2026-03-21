@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Custom Webapp
 status: unknown
-stopped_at: Completed 13-03-PLAN.md
-last_updated: "2026-03-21T01:16:11.933Z"
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-03-21T01:31:38.117Z"
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
+  completed_phases: 5
+  total_plans: 11
+  completed_plans: 11
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Run and orchestrate multiple Claude Code instances across projects from a central server, with each node managing its own local Claude sessions independently.
-**Current focus:** Phase 13 — dispatch-instance-management-and-node-lifecycle
+**Current focus:** Phase 14 — protocol-and-server-spec-documents
 
 ## Current Position
 
-Phase: 13 (dispatch-instance-management-and-node-lifecycle) — EXECUTING
-Plan: 3 of 3
+Phase: 14 (protocol-and-server-spec-documents) — EXECUTING
+Plan: 2 of 2
 
 ## Accumulated Context
 
@@ -59,6 +59,8 @@ Plan: 3 of 3
 - [Phase 13]: Instance registered in map before ACK/goroutine spawn — prevents kill arriving before instance is tracked
 - [Phase 13]: ConnectionManager.Start() before Dispatcher.Run() — recv channel must be ready before dispatcher reads from it
 - [Phase 13]: Shutdown order: cancel context -> Stop dispatcher -> Wait (10s timeout) -> Stop ConnectionManager — ensures disconnect frame sent after instances drain
+- [Phase 14]: Server spec derived from working node source code; Whisper integration as REST endpoint separate from WebSocket protocol
+- [Phase 14]: Grouped message types by direction (outbound vs inbound) for server implementer clarity
 
 ### Pending Todos
 
@@ -79,6 +81,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:16:11.926Z
-Stopped at: Completed 13-03-PLAN.md
+Last session: 2026-03-21T01:31:38.110Z
+Stopped at: Completed 14-01-PLAN.md
 Resume file: None

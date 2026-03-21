@@ -33,7 +33,7 @@ See [milestones/v1.1-ROADMAP.md](milestones/v1.1-ROADMAP.md) for full phase deta
 - [x] **Phase 11: WebSocket Connection Manager** - Build and validate outbound WebSocket client with reconnect and heartbeat (completed 2026-03-21)
 - [x] **Phase 12: Telegram Removal and Session Migration** - Delete Telegram layer and migrate session identity from channel IDs to project keys (completed 2026-03-21)
 - [x] **Phase 13: Dispatch, Instance Management, and Node Lifecycle** - Implement command dispatch, multi-instance management, and end-to-end node wiring (completed 2026-03-21)
-- [ ] **Phase 14: Protocol and Server Spec Documents** - Write wire protocol spec and server backend spec from working implementation
+- [x] **Phase 14: Protocol and Server Spec Documents** - Write wire protocol spec and server backend spec from working implementation (completed 2026-03-21)
 
 ## Phase Details
 
@@ -103,10 +103,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. `docs/protocol-spec.md` exists with the full message type catalog, `Envelope` format, authentication handshake sequence, reconnect behavior, and at least one sequence diagram covering the execute-stream-finish flow
   2. `docs/server-spec.md` exists describing the WebSocket endpoint contract, data models the server must maintain per node and per instance, and the OpenAI Whisper integration point for server-side voice-to-text
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
-- [ ] 14-01-PLAN.md — Wire protocol specification (message catalog, Envelope, auth, reconnect, sequence diagrams)
-- [ ] 14-02-PLAN.md — Server backend specification (WebSocket endpoint, data models, Whisper integration)
+- [x] 14-01-PLAN.md — Wire protocol specification (message catalog, Envelope, auth, reconnect, sequence diagrams)
+- [x] 14-02-PLAN.md — Server backend specification (WebSocket endpoint, data models, Whisper integration)
 
 ## Progress
 
@@ -121,4 +121,4 @@ Plans:
 | 11. WebSocket Connection Manager | v1.2 | 2/2 | Complete    | 2026-03-21 |
 | 12. Telegram Removal and Session Migration | v1.2 | 2/2 | Complete    | 2026-03-21 |
 | 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 3/3 | Complete    | 2026-03-21 |
-| 14. Protocol and Server Spec Documents | v1.2 | 0/2 | Not started | - |
+| 14. Protocol and Server Spec Documents | v1.2 | 2/2 | Complete   | 2026-03-21 |
