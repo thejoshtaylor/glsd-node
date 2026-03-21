@@ -74,7 +74,10 @@ Plans:
   2. TypeScript source files and Bun/npm configuration files are absent from the repository
   3. `internal/session` compiles with `InstanceStore` keyed by `string` (instance UUID); `QueuedMessage` uses `InstanceID string` rather than `ChatID int64`
   4. `sessions.json` on disk uses project-name keys; a migration script converts existing channel-ID-keyed records, logging any unmappable entries rather than silently discarding them
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 12-01-PLAN.md — Delete Telegram packages, TypeScript files, strip dependencies and config
+- [ ] 12-02-PLAN.md — Rekey session persistence from channel IDs to instance/project strings
 
 ### Phase 13: Dispatch, Instance Management, and Node Lifecycle
 **Goal**: The node receives commands from the server, manages multiple Claude CLI instances simultaneously, streams their output, and shuts down cleanly — the full working node
@@ -108,7 +111,7 @@ Plans:
 | 8. Polling Stability | v1.1 | 1/1 | Complete | 2026-03-20 |
 | 9. Channel Auth | v1.1 | 1/1 | Complete | 2026-03-20 |
 | 10. Protocol Definitions and Config | v1.2 | 2/2 | Complete    | 2026-03-20 |
-| 11. WebSocket Connection Manager | v1.2 | 2/2 | Complete   | 2026-03-21 |
-| 12. Telegram Removal and Session Migration | v1.2 | 0/? | Not started | - |
+| 11. WebSocket Connection Manager | v1.2 | 2/2 | Complete    | 2026-03-21 |
+| 12. Telegram Removal and Session Migration | v1.2 | 0/2 | Not started | - |
 | 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 0/? | Not started | - |
 | 14. Protocol and Server Spec Documents | v1.2 | 0/? | Not started | - |
