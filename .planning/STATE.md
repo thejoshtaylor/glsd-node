@@ -72,6 +72,12 @@ None.
 - [Phase 11]: `coder/websocket` read deadline API differs from gorilla — verify method names before writing connection lifecycle code
 - [Phase 12]: `sessions.json` migration: entries keyed by channels with no `mappings.json` match are unrecoverable — migration script must log losses; test on production copy before first v1.2 deploy
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260324-wld | Make all websocket connections use wss instead of ws | 2026-03-25 | 35374b2 | [260324-wld-make-all-websocket-connections-use-wss-i](./quick/260324-wld-make-all-websocket-connections-use-wss-i/) |
+
 ## Performance Metrics
 
 **Velocity:**
@@ -81,6 +87,5 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-21T01:31:38.110Z
-Stopped at: Completed 14-01-PLAN.md
+Last activity: 2026-03-25 - Completed quick task 260324-wld: Make all websocket connections use wss instead of ws
 Resume file: None
