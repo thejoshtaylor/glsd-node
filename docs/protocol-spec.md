@@ -200,14 +200,16 @@ There are 10 message types. Seven are outbound (node-to-server), three are inbou
 ```json
 {
   "instance_id": "<string>",
-  "exit_code": 0
+  "exit_code": 0,
+  "session_id": "<string, optional>"
 }
 ```
 
 | Field         | JSON type | Go type | Notes                                        |
 |---------------|-----------|---------|----------------------------------------------|
 | `instance_id` | `string`  | `string`| Identifies the instance that finished         |
-| `exit_code`   | `number`  | `int`   | OS exit code from the Claude CLI process. `0` for clean exit. |
+| `exit_code`   | `number`  | `int`   | Real OS exit code from the Claude CLI process. 0 = clean exit, -1 = killed by signal, positive = CLI error code. |
+| `session_id`  | `string`  | `string`| Claude session ID from this run. Omitted when empty (omitempty). Server should store this for use as `session_id` in future `execute` commands. |
 
 ---
 
@@ -481,7 +483,7 @@ sequenceDiagram
         Node->>Server: stream_event {instance_id, data}
     end
     CLI-->>Node: Process exits (code 0)
-    Node->>Server: instance_finished {instance_id, exit_code: 0}
+    Node->>Server: instance_finished {instance_id, exit_code, session_id}
 ```
 
 ### Diagram 3: Kill Flow
@@ -496,7 +498,7 @@ sequenceDiagram
     Note over Node: Look up instance by ID
     Node->>CLI: Cancel context (terminates subprocess)
     alt Clean exit before error
-        Node->>Server: instance_finished {instance_id, exit_code: 0}
+        Node->>Server: instance_finished {instance_id, exit_code: -1}
     else Error exit
         Node->>Server: instance_error {instance_id, error}
     end

@@ -79,7 +79,7 @@ The server must track the following per running Claude CLI instance:
 | `instance_id` | string | Server-assigned UUID, unique across all nodes. The server generates this when dispatching an `execute` command. |
 | `node_id` | string | Which node is running this instance. |
 | `project` | string | Project name the instance is running under. |
-| `session_id` | string (optional) | Claude CLI session ID for resume capability. Populated from the `instance_started` event. Empty until the first response from Claude CLI. |
+| `session_id` | string (optional) | Claude CLI session ID for resume capability. Initially populated from `instance_started`; updated (superseded) by `instance_finished` which carries the authoritative final session ID. The server should persist the `instance_finished` value for future `--resume` use. |
 | `status` | enum | `pending` (execute sent, no ACK yet), `running` (ACK or `instance_started` received), `finished`, `errored`. |
 | `started_at` | timestamp | When `instance_started` was received from the node. |
 | `finished_at` | timestamp (optional) | When a terminal event (`instance_finished` or `instance_error`) was received. |
@@ -184,7 +184,7 @@ Events the server receives from nodes:
 | `ack` | After `execute` received | Mark instance as `running`; correlate via envelope `id` (matches the `execute` command's `id`). |
 | `stream_event` | Claude CLI output | Forward to frontend/store, keyed by `instance_id`. Contains NDJSON chunks in `data` field. |
 | `instance_started` | Subprocess launched | Update instance status to `running`; capture `session_id` for resume capability. |
-| `instance_finished` | Clean exit | Mark instance `finished`; record `exit_code`; set `finished_at` timestamp. |
+| `instance_finished` | Clean exit | Mark instance `finished`; record `exit_code` (0 = clean, -1 = signal-killed, positive = CLI error); capture `session_id` for resume capability; set `finished_at` timestamp. |
 | `instance_error` | Error or rate limit | Mark instance `errored`; record `error` message; set `finished_at` timestamp. |
 | `node_disconnect` | Clean shutdown | Mark node `disconnected`; expect WebSocket close to follow. |
 
@@ -211,7 +211,7 @@ Each instance produces **exactly one** terminal event (`instance_finished` or `i
 
 **instance_finished:**
 ```json
-{ "instance_id": "...", "exit_code": 0 }
+{ "instance_id": "...", "exit_code": 0, "session_id": "..." }
 ```
 
 **instance_error:**
