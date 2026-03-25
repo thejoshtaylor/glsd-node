@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Custom Webapp
-status: Ready to plan
-last_updated: "2026-03-25T07:30:56.387Z"
+status: Phase complete — ready for verification
+last_updated: "2026-03-25T07:45:29.087Z"
 last_activity: 2026-03-25
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 13
-  completed_plans: 13
+  completed_phases: 8
+  total_plans: 15
+  completed_plans: 15
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Run and orchestrate multiple Claude Code instances across projects from a central server, with each node managing its own local Claude sessions independently.
-**Current focus:** Phase 16 — instance-lifecycle-fixes
+**Current focus:** Phase 17 — dead-code-removal-and-test-fixes
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
+Phase: 17 (dead-code-removal-and-test-fixes) — EXECUTING
+Plan: 2 of 2
 
 ## Accumulated Context
 
@@ -64,6 +64,10 @@ Plan: Not started
 - [Phase 15]: Non-nil empty slice default for Projects: cfg.Projects = []string{} before optional append ensures JSON serializes as [] not null
 - [Phase 15]: TestRegisterOnConnect upgraded from chan string to chan protocol.NodeRegister to verify full Projects round-trip through registration frame
 - [Phase 16-instance-lifecycle-fixes]: exit_code extracted via errors.As + exec.ExitError in InstanceFinished; SessionID (omitempty) populated from proc.SessionID() as authoritative final session ID
+- [Phase 17]: zerolog.Nop() in newTestDispatcher eliminates race without safeBuffer where log output not inspected
+- [Phase 17]: runtime.GOOS skip guard for TestValidatePathWindowsTraversal — backslash traversal requires Windows filepath.Clean semantics
+- [Phase 17-dead-code-removal-and-test-fixes]: ChannelRateLimiter and IsAuthorized removed as Telegram-era dead code with zero production imports
+- [Phase 17-dead-code-removal-and-test-fixes]: internal/session removed entirely per CLEAN-04: dispatcher manages sessions inline via proc.SessionID()
 
 ### Pending Todos
 

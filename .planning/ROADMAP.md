@@ -144,10 +144,10 @@ Plans:
   2. `internal/session` package is either wired into production code at startup or removed entirely
   3. Dispatch tests use a thread-safe logger — `go test -race ./internal/dispatch/...` passes
   4. `TestValidatePathWindowsTraversal` is platform-aware and passes on macOS
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
-- [ ] 17-01-PLAN.md — Delete ChannelRateLimiter, IsAuthorized, and internal/session package
-- [ ] 17-02-PLAN.md — Fix dispatch test data race and platform-aware Windows test guard
+- [x] 17-01-PLAN.md — Delete ChannelRateLimiter, IsAuthorized, and internal/session package
+- [x] 17-02-PLAN.md — Fix dispatch test data race and platform-aware Windows test guard
 
 ## Progress
 
@@ -165,4 +165,4 @@ Plans:
 | 14. Protocol and Server Spec Documents | v1.2 | 2/2 | Complete    | 2026-03-21 |
 | 15. Project Config and Registration | v1.2 | 1/1 | Complete    | 2026-03-25 |
 | 16. Instance Lifecycle Fixes | v1.2 | 1/1 | Complete    | 2026-03-25 |
-| 17. Dead Code Removal and Test Fixes | v1.2 | 0/2 | In Progress | — |
+| 17. Dead Code Removal and Test Fixes | v1.2 | 2/2 | Complete   | 2026-03-25 |

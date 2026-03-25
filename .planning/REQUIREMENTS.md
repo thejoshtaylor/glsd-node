@@ -46,9 +46,9 @@ Requirements for the custom webapp milestone. Each maps to roadmap phases.
 ### Cleanup
 
 - [x] **CLEAN-01**: Remove `internal/bot/` and all Telegram handler code
-- [ ] **CLEAN-02**: Remove gotgbot/v2 and openai-go dependencies from go.mod
+- [x] **CLEAN-02**: Remove gotgbot/v2 and openai-go dependencies from go.mod
 - [x] **CLEAN-03**: Remove TypeScript source files and Bun/npm configuration
-- [ ] **CLEAN-04**: Migrate session persistence keys from Telegram channel IDs to project-based keys
+- [x] **CLEAN-04**: Migrate session persistence keys from Telegram channel IDs to project-based keys
 
 ### Documentation
 
@@ -109,9 +109,9 @@ Deferred to v1.2.x or later. Tracked but not in current roadmap.
 | NODE-05 | Phase 13 | Complete |
 | NODE-06 | Phase 13 | Complete |
 | CLEAN-01 | Phase 12 | Complete |
-| CLEAN-02 | Phase 17 | Pending |
+| CLEAN-02 | Phase 17 | Complete |
 | CLEAN-03 | Phase 12 | Complete |
-| CLEAN-04 | Phase 17 | Pending |
+| CLEAN-04 | Phase 17 | Complete |
 | DOCS-01 | Phase 14 | Complete |
 | DOCS-02 | Phase 14 | Complete |
 
