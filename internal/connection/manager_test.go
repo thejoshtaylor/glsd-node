@@ -25,6 +25,7 @@ func newTestConfig(serverURL string) *config.NodeConfig {
 		ServerToken:           "test-token",
 		HeartbeatIntervalSecs: 30,
 		NodeID:                "test-node",
+		Projects:              []string{},
 	}
 }
 
@@ -180,11 +181,11 @@ func TestBackoff(t *testing.T) {
 }
 
 // TestRegisterOnConnect verifies that the first frame received by the server
-// after a new connection is a NodeRegister envelope with the correct NodeID.
+// after a new connection is a NodeRegister envelope with the correct NodeID and Projects.
 func TestRegisterOnConnect(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	registered := make(chan string, 1) // receives NodeID from first frame
+	registered := make(chan protocol.NodeRegister, 1) // receives full NodeRegister from first frame
 
 	wsURL, srv := newMockServer(t, func(conn *websocket.Conn) {
 		defer conn.CloseNow()
@@ -209,7 +210,7 @@ func TestRegisterOnConnect(t *testing.T) {
 			t.Logf("decode error: %v", err)
 			return
 		}
-		registered <- reg.NodeID
+		registered <- reg
 		// Drain until close.
 		for {
 			if _, _, err := conn.Read(ctx); err != nil {
@@ -220,6 +221,7 @@ func TestRegisterOnConnect(t *testing.T) {
 	defer srv.Close()
 
 	cfg := newTestConfig(wsURL)
+	cfg.Projects = []string{"project-a", "project-b"}
 	m := NewConnectionManager(cfg, zerolog.Nop())
 	m.SetHTTPClient(srv.Client())
 
@@ -229,9 +231,12 @@ func TestRegisterOnConnect(t *testing.T) {
 	defer m.Stop()
 
 	select {
-	case nodeID := <-registered:
-		if nodeID != cfg.NodeID {
-			t.Errorf("NodeID = %q, want %q", nodeID, cfg.NodeID)
+	case reg := <-registered:
+		if reg.NodeID != cfg.NodeID {
+			t.Errorf("NodeID = %q, want %q", reg.NodeID, cfg.NodeID)
+		}
+		if len(reg.Projects) != 2 || reg.Projects[0] != "project-a" || reg.Projects[1] != "project-b" {
+			t.Errorf("Projects = %v, want [project-a project-b]", reg.Projects)
 		}
 	case <-time.After(5 * time.Second):
 		t.Error("server did not receive NodeRegister frame within timeout")

@@ -18,7 +18,7 @@ func (m *ConnectionManager) sendRegister(ctx context.Context, conn *websocket.Co
 		NodeID:           m.cfg.NodeID,
 		Platform:         runtime.GOOS,
 		Version:          protocol.Version,
-		Projects:         []string{},
+		Projects:         m.cfg.Projects,
 		RunningInstances: make([]protocol.InstanceSummary, 0),
 	}
 
