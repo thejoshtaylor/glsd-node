@@ -156,6 +156,6 @@ Plans:
 | 12. Telegram Removal and Session Migration | v1.2 | 2/2 | Complete    | 2026-03-21 |
 | 13. Dispatch, Instance Management, and Node Lifecycle | v1.2 | 3/3 | Complete    | 2026-03-21 |
 | 14. Protocol and Server Spec Documents | v1.2 | 2/2 | Complete    | 2026-03-21 |
-| 15. Project Config and Registration | v1.2 | 1/1 | Complete   | 2026-03-25 |
+| 15. Project Config and Registration | v1.2 | 1/1 | Complete    | 2026-03-25 |
 | 16. Instance Lifecycle Fixes | v1.2 | 0/0 | Planned | — |
 | 17. Dead Code Removal and Test Fixes | v1.2 | 0/0 | Planned | — |
