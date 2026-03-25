@@ -8,31 +8,21 @@ A local Go service that manages Claude Code CLI sessions across multiple project
 
 Run and orchestrate multiple Claude Code instances across projects from a central server, with each node managing its own local Claude sessions independently.
 
-## Current Milestone: v1.2 Custom Webapp
-
-**Goal:** Replace Telegram bot interface with a custom WebSocket-based communication protocol, transforming the bot into standalone node software that connects to a central server.
-
-**Target features:**
-- Remove Telegram and TypeScript dependencies entirely
-- Implement outbound WebSocket connection to central server
-- Support multiple simultaneous Claude CLI instances per project
-- Node health/heartbeat and online status reporting
-- Efficient command dispatch from server to node
-- Deliver protocol spec and server backend spec as documentation
-
 ## Current State
 
-**v1.2 complete** — All 5 phases delivered as of 2026-03-21.
+**v1.2 shipped** — 8 phases, 15 plans, 30/30 requirements satisfied. Shipped 2026-03-25.
 
-- v1.0: 7 phases, 24 plans — full Go rewrite shipped
+- v1.0: 7 phases, 24 plans — full Go rewrite (Telegram bot)
 - v1.1: 2 phases, 2 plans — polling stability + channel auth
-- v1.2 Phase 10: Protocol message types and node config — stable wire contract established
-- v1.2 Phase 11: WebSocket ConnectionManager — dial, reconnect, heartbeat, single writer
-- v1.2 Phase 12: Telegram removed, session keys migrated to instance UUID strings
-- v1.2 Phase 13: Full working node — dispatch, multi-instance management, graceful shutdown
-- v1.2 Phase 14: Protocol and server spec documents — wire protocol + server backend specs delivered
-- ~4,200 lines of Go across 26 files, plus ~970 lines of specification docs
-- All automated tests pass (8 packages: audit, claude, config, connection, dispatch, protocol, security, session)
+- v1.2: 8 phases, 15 plans — standalone node software with WebSocket protocol
+  - Protocol message types, node config, hardware-derived node ID
+  - WebSocket ConnectionManager with reconnect, heartbeat, single writer
+  - Telegram and TypeScript removed entirely
+  - Full dispatch: multi-instance management, streaming, graceful shutdown
+  - Wire protocol spec + server backend spec delivered
+  - Gap closure: real exit codes, session IDs, project config, dead code removal
+- ~5,400 lines of Go across 7 packages, plus spec docs
+- `go test -race ./...` passes clean across all packages
 
 ## Requirements
 
@@ -64,15 +54,25 @@ Run and orchestrate multiple Claude Code instances across projects from a centra
 - [x] Channel auth via admin lookup — channels authorized if an allowed user is admin — v1.1 Phase 9
 - [x] Echo loop prevention — bot's own reflected channel posts and linked-channel forwards filtered — v1.1 Phase 9
 
+### Validated (v1.2)
+
+- [x] Outbound WebSocket connection to central server (wss://) — v1.2 Phase 11
+- [x] Custom wire protocol with 10 message types and Envelope format — v1.2 Phase 10
+- [x] Multiple simultaneous Claude CLI instances per project — v1.2 Phase 13
+- [x] Heartbeat, reconnect with exponential backoff, graceful shutdown — v1.2 Phases 11, 13
+- [x] Command dispatch (run, kill, status) from server to node — v1.2 Phase 13
+- [x] Real exit codes and session IDs on instance lifecycle events — v1.2 Phase 16
+- [x] Project list in registration frame from config — v1.2 Phase 15
+- [x] Protocol spec and server backend spec — v1.2 Phase 14
+- [x] Telegram and TypeScript removal — v1.2 Phases 12, 17
+- [x] All tests pass with race detector — v1.2 Phase 17
+
 ### Out of Scope
 
 - macOS LaunchAgent support — Go version targets Windows only
 - SQLite or database storage — JSON files sufficient
 - Docker deployment — Windows Service is target platform
 - Shared Claude sessions — each project must be independent
-- Video/audio file transcription — deferred to future (MEDIA-06, MEDIA-07)
-- Archive file extraction — deferred to future (MEDIA-08)
-- Auth rejection suppression in public channels — deferred (AUTH-03)
 
 ## Context
 
@@ -80,8 +80,8 @@ The Go rewrite is complete — a ground-up redesign from the original ~3,300 lin
 
 Architecture: Node connects outbound to server (no firewall changes). Server manages multiple nodes, each node manages multiple projects (directories), each project can have multiple Claude CLI instances. Communication via WebSocket with a custom binary/JSON protocol.
 
-Tech stack: Go 1.23+, zerolog, godotenv, golang.org/x/time, gorilla/websocket (or nhooyr.io/websocket)
-External deps: claude CLI, pdftotext (poppler), NSSM (Windows Service)
+Tech stack: Go 1.23+, zerolog, godotenv, golang.org/x/time, coder/websocket
+External deps: claude CLI, NSSM (Windows Service)
 
 ## Constraints
 
@@ -109,10 +109,12 @@ External deps: claude CLI, pdftotext (poppler), NSSM (Windows Service)
 | Token bucket rate limiting | Per-channel, goroutine-safe, configurable | ✓ Good — golang.org/x/time/rate |
 | Admin lookup for channel auth | Zero config — channels auto-authorize if an allowed user is admin | ✓ Good — no channel IDs in .env needed |
 | 15-min admin cache TTL | Balance freshness vs API load for GetChatAdministrators | ✓ Good — sync.Map with inline expiry |
-| Outbound WebSocket over inbound API | Nodes behind NAT/firewalls — no user config needed | — Pending |
-| Remove Telegram entirely | Node software doesn't need chat platform coupling | — Pending |
-| Multiple instances per project | Parallel GSD execution in same directory | — Pending |
-| Spec-first server design | Build node first, deliver specs for server repo | — Pending |
+| Outbound WebSocket over inbound API | Nodes behind NAT/firewalls — no user config needed | ✓ Good — zero firewall config |
+| Remove Telegram entirely | Node software doesn't need chat platform coupling | ✓ Good — clean codebase |
+| Multiple instances per project | Parallel GSD execution in same directory | ✓ Good — sync.RWMutex instance map |
+| Spec-first server design | Build node first, deliver specs for server repo | ✓ Good — specs derived from working code |
+| coder/websocket over gorilla | gorilla archived 2022, panics on concurrent writes | ✓ Good — single writer pattern |
+| Hardware-derived node ID | No user config, machineid + hostname fallback | ✓ Good — zero-config identity |
 
 ## Evolution
 
@@ -132,4 +134,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-21 after v1.2 Phase 14 completion*
+*Last updated: 2026-03-25 after v1.2 milestone completion*
