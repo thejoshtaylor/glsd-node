@@ -33,17 +33,3 @@ func CheckCommandSafety(text string, blockedPatterns []string) (bool, string) {
 	}
 	return true, ""
 }
-
-// IsAuthorized reports whether userID is in the allowedUsers list.
-//
-// channelID is accepted for Phase 2 forward-compatibility: Phase 2 will add
-// per-channel membership auth that uses channelID. Phase 1 ignores it — auth is
-// based solely on the user allowlist.
-func IsAuthorized(userID int64, channelID int64, allowedUsers []int64) bool {
-	for _, id := range allowedUsers {
-		if userID == id {
-			return true
-		}
-	}
-	return false
-}
